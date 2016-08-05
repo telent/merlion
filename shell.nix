@@ -8,6 +8,7 @@ in stdenv.mkDerivation {
     buildInputs = [ leiningen openjdk 
       etcd 
       jq
+      openssl
       ];
     M2REPOSITORY = ''m2repo'';
     buildPhase = ''
