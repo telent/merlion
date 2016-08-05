@@ -14,11 +14,10 @@ dynamically when backends change.
 
 ## Usage
 
+### Configuration
+
 Merlion uses the etcd store both for its own configuration and for
-finding the details of the backend services it is proxying.
-
-
-1. Choose an etcd keyspace prefix for configuration for this
+finding the details of the backend services it is proxying.  Choose an etcd keyspace prefix for configuration for this
 instance/cluster itself.  Under this prefix, merlion expects the following
 keys
 
@@ -30,15 +29,18 @@ keys
 * `log-format` - one of `none`, `json`, `edn` or `ncsa` (default `json`)
 * [ stuff for performance and monitoring, tbd exactly what ]
 
-1. Start the service
+### Invocation
 
-      $ java -jar merlion-0.1.0-standalone.jar /the/etcd/path/to/merlion/config
+    $ java -jar merlion-0.1.0-standalone.jar /the/etcd/path/to/merlion/config
 
-1. merlion will probably do nothing interesting until you have some backends configured.  It expects each of the services it is proxying to have registered their details in etcd at the specified prefix.  For example, if the prefix is  `/service/sinatra/helloworld/` you might have any/all of `/service/sinatra/helloworld/21345`, `/service/sinatra/helloworld/i-346ad1`, `/service/sinatra/helloworld/127_0_0_1/`
 
-1. merlion considers each of the upstream service paths and adds it as a valid service if the following conditions are met:
+### Registering upstreams
 
-* the key `listen-address` (e.g. `localhost:4567`) is present and not obviously incorrect.  The upstream service should be listening at that address
+Merlion will probably do nothing interesting until you have some backends registered.  It expects each of the services it is proxying to have registered their details in etcd at the prefix specified by `upstream-service-etc-prefix`.  For example, if the prefix is  `/service/sinatra/helloworld/` you might have any/all of `/service/sinatra/helloworld/21345`, `/service/sinatra/helloworld/i-346ad1`, `/service/sinatra/helloworld/127_0_0_1/`
+
+Each etcd directory node within the configured prefix is added as a valid service if the following conditions are met:
+
+* the key `listen-address` (e.g. `localhost:4567`) is present and not obviously incorrect.  The upstream service should be listening at that address, otherwise things will tend to not work.
 
 * the key `last-seen-at` is a valid ISO8166 datetime and the interval between `last-seen-at` and the time now is less than  `upstream-freshness` seconds
 
