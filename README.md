@@ -40,7 +40,7 @@ keys
 
 * the key `listen-address` (e.g. `localhost:4567`) is present and not obviously incorrect.  The upstream service should be listening at that address
 
-* the key `last-seen-at` is a valid ISO8166 datetime and is newer than the time `upstream-freshness` seconds ago
+* the key `last-seen-at` is a valid ISO8166 datetime and the interval between `last-seen-at` and the time now is less than  `upstream-freshness` seconds
 
 * the key `disabled` is not present
 
