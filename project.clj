@@ -11,4 +11,5 @@
                  [ring/ring-codec "1.0.1"]]
   :main ^:skip-aot merlion.core
   :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}})
+  :profiles {:repl {:plugins [[cider/cider-nrepl "0.12.0"]]}
+             :uberjar {:aot :all}})
