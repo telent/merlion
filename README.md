@@ -1,6 +1,6 @@
 # merlion
 
-An etcd-friendly HTTP proxy/TLS terminator, following the
+An etcd-friendly HTTP proxy, following the
 ["autopilot"]
 (https://www.joyent.com/blog/app-centric-micro-orchestration) pattern
 described by Casey Bisson at Joyent.  Reconfigures itself
@@ -21,9 +21,7 @@ finding the details of the backend services it is proxying.  Choose an etcd keys
 instance/cluster itself.  Under this prefix, merlion expects the following
 keys
 
-* `listen-address` (optional, defaults to *:443)
-* `tls-certificate` as PEM encoded string (if intermediate certs are required, catenate them all together with the final certificate)
-* `tls-private-key` as PEM encoded string
+* `listen-address` (optional, defaults to *:8080)
 * `upstream-service-etcd-prefix` e.g. `/service/sinatra/helloworld/`
 * `upstream-freshness` -  timeout in seconds after which an upstream that has not recently published a `last-seen-at` timestamp is removed from service
 * `log-format` - one of `none`, `json`, `edn` or `ncsa` (default `json`)
@@ -57,7 +55,7 @@ Each etcd directory node within the configured prefix is added as a valid servic
   on netty.
 
 * Clojure-friendly but capable of use for backends in other languages
-  without anyone having to learn clojure
+  without anyone having to learn the language
 
 
 
