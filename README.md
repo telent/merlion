@@ -6,6 +6,11 @@ An etcd-friendly HTTP proxy, following the
 described by Casey Bisson at Joyent.  Reconfigures itself
 dynamically when backends change.
 
+**This project is conducted using README-Driven Development, or
+something vaguely akin to it.  You should probably, therefore, treat
+this document as a statement of how I wish things would be, rather
+than as a claim that this is presently how they in fact are**
+
 
 ## Installation
 
