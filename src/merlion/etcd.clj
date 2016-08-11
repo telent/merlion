@@ -37,14 +37,12 @@
 (def put-http (comp slurp :body deref http/put))
 (def etcd-endpoint "http://localhost:2379/v2/keys")
 
-(defn from-etcd [prefix]
+(defn get-prefix [prefix]
   (->> (str etcd-endpoint prefix "/?recursive=1")
        get-http
        (map-from-etcd-response prefix)))
 
-(defonce configuration (atom {}))
-
-(defn etcd-change-chan [prefix]
+(defn watch-prefix [prefix]
   (let [ch (chan)]
     (go
       (loop []
@@ -52,13 +50,6 @@
         (recur)))
     ch))
 
-(defn watch-config [prefix]
-  (let [etcd-change (etcd-change-chan prefix)]
-    (go
-      (loop [c nil]
-        (println [:change c])
-        (reset! configuration (from-etcd prefix))
-        (recur (<! etcd-change))))))
 
 (defn put-value [path value]
   (let [nname (str/join "/" (map name path))]
