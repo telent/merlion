@@ -22,8 +22,10 @@
     (get node "value")))
 
 (defn map-from-etcd-response [prefix response-body]
-  (value-from-etcd-node prefix
-                        (get (json/decode response-body) "node")))
+  (let [j (json/decode response-body)]
+    (if-let [node (get j "node")]
+      (value-from-etcd-node prefix node)
+      (with-meta {} {:error j}))))
 
 (deftest map-from-etcd-response-test
   (let [body (slurp "test/fixtures/etcd-response.json")
@@ -33,8 +35,10 @@
     (is (= (-> m :auth :google :client-id)
            "608620955125-9plvti1kpi8vjacjo3ssmei9m43r1qo9.apps.googleusercontent.com"))))
 
-(def get-http (comp slurp :body deref http/get))
-(def put-http (comp slurp :body deref http/put))
+(def get-http
+  (comp slurp :body deref #(http/get % {:throw-exceptions false})))
+(def put-http
+  (comp slurp :body deref #(http/get % {:throw-exceptions false})))
 (def etcd-endpoint "http://localhost:2379/v2/keys")
 
 (defn get-prefix [prefix]
