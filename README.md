@@ -22,9 +22,9 @@ than as a claim that this is presently how they in fact are**
 ### Configuration
 
 Merlion uses the etcd store both for its own configuration and for
-finding the details of the backend services it is proxying.  Choose an etcd keyspace prefix for configuration for this
-instance/cluster itself.  Under this prefix, merlion expects the following
-keys
+finding the details of the backend services it is proxying.  Choose an
+etcd keyspace prefix for configuration for this instance/cluster
+itself.  Under this prefix, merlion expects the following keys
 
 * `listen-address` (optional, defaults to *:8080)
 * `upstream-service-etcd-prefix` e.g. `/service/sinatra/helloworld/`
