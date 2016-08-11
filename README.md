@@ -59,6 +59,12 @@ Each etcd directory node within the configured prefix is added as a valid servic
 * performance should be "what you'd expect from netty" - as it's based
   on netty.
 
+* per the *autopilot pattern*, the responsibility of ensuring that a
+  backend is healthy is the backend's: as long as it thrives, it
+  should update its last-seen-at key frequently enough for merlion to
+  believe it is still present. [ no, I don't know how this plays out
+  with network partitions, I guess we'll find out ]
+
 * Clojure-friendly but capable of use for backends in other languages
   without anyone having to learn the language
 
