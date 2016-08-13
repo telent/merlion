@@ -32,14 +32,19 @@
 
 
 (defn make-backend-channel [backend]
-  (let [ch (chan)]
+  (let [ch (chan)
+        backend-addr (parse-address (:listen-address backend))]
     (go
       (loop []
         (when-let [[req out-ch] (<! ch)]
           (println [:got-backend-req
-                    (parse-address (:listen-address backend))])
+                    backend-addr])
           (>! out-ch
-              (http/get "http://localhost:8000/LOG.md" {:raw-stream? true}))
+              (http/request (assoc req
+                                   :raw-stream? true
+                                   :follow-redirects? false
+                                   :server-name (:address backend-addr)
+                                   :server-port (:port  backend-addr))))
           (close! out-ch)
           (println "done")
           (recur )))
