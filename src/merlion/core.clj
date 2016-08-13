@@ -2,6 +2,7 @@
   (:require [merlion.etcd :as etcd]
             [clojure.pprint :refer [pprint]]
             [manifold.stream :as s]
+            [manifold.deferred :as d]
             [clojure.string :as str]
             [clojure.set :as set]
             [clojure.core.async :as async
@@ -19,13 +20,8 @@
   (println [:req req :ch backends-ch] )
   (println :L)
   (let [ch (chan)]
-    (go (async/put! backends-ch req)
-        (dotimes [i 20]
-          #_ (<! (async/timeout 500))
-          (>! ch (.toString i)))
-        (close! ch))
-    {:status 200 :headers {"content-type" "text/plain"}
-     :body (s/->source ch)}))
+    (async/put! backends-ch [req ch])
+    (s/take! (s/->source ch))))
 
 (defn proxy-handler [ch req]
   (proxy-handler1 ch req))
@@ -39,11 +35,13 @@
   (let [ch (chan)]
     (go
       (loop []
-        (when-let [r (<! ch)]
+        (when-let [[req out-ch] (<! ch)]
           (println [:got-backend-req
-                    (parse-address (:listen-address backend))
-                    r])
-          (<! (async/timeout 1000))
+                    (parse-address (:listen-address backend))])
+          (>! out-ch
+              (http/get "http://localhost:8000/LOG.md" {:raw-stream? true}))
+          (close! out-ch)
+          (println "done")
           (recur )))
       (println [:shutdown backend]))
     ch))
@@ -105,15 +103,14 @@
                          listeners
                          (:listen-address config))]
           (print-state listeners backends)
-          (let [[val ch]
+          (let [[value ch]
                 (alts! (remove nil?
                                [config-watcher
                                 backend-watcher
                                 shutdown-ch
                                 backends-ch]))]
-            (println [:inclong_from ch val])
-            (if (= ch backends-ch)
-              (println ["Incoming!" val]))
+            (when (= ch backends-ch)
+              (alts! (map (fn [b] [(:channel b) value]) (vals backends))))
             (if (= ch shutdown-ch)
               (.close (first (vals listeners)))
               (recur listeners
