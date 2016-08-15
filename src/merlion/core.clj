@@ -5,6 +5,7 @@
             [manifold.deferred :as d]
             [clojure.string :as str]
             [clojure.set :as set]
+            [clojure.instant]
             [clojure.core.async :as async
              :refer [<! go chan >! close! alts!]]
             [aleph.http :as http])
@@ -88,6 +89,18 @@
 (defn print-state [l b]
   (pprint {:listeners l :backends b}))
 
+(defn s->millepoch-time [s]
+  (.getTimeInMillis (clojure.instant/read-instant-calendar s)))
+
+(defn millepoch-time-now []
+  (.getTime (java.util.Date.)))
+
+(defn healthy-backend?
+  "true if backend seen more recently than time"
+  [time b]
+  (> (s->millepoch-time (:last-seen-at b))
+     time))
+
 (defn run-server [prefix]
   (let [shutdown-ch (chan)
         config-watcher (etcd/watch-prefix prefix)
@@ -115,7 +128,14 @@
                                 shutdown-ch
                                 backends-ch]))]
             (when (= ch backends-ch)
-              (alts! (map (fn [b] [(:channel b) value]) (vals backends))))
+              (let [since (- (millepoch-time-now)
+                             (* 1000 (Integer/parseInt (:upstream-freshness config))))
+                    good-backends (filter (partial healthy-backend? since)
+                                          (vals backends))]
+                (if (seq good-backends)
+                  (alts! (map (fn [b] [(:channel b) value]) good-backends))
+                  (>! (second value) {:status 500 :headers {}
+                                      :body "No healthy downstreams"}))))
             (if (= ch shutdown-ch)
               (.close (first (vals listeners)))
               (recur listeners
