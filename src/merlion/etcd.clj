@@ -46,7 +46,9 @@
        get-http
        (map-from-etcd-response prefix)))
 
-(defn watch-prefix [prefix]
+(defn watch-prefix
+  "Returns a core.async channel which delivers a val whenever an etcd key under `prefix` is added/deleted/changed."
+  [prefix]
   (let [ch (chan)]
     (go
       (loop []
