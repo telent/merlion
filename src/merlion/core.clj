@@ -16,6 +16,8 @@
     watcher
     (do (if watcher (close! watcher))
         (etcd/watch-prefix new-prefix))))
+(defn spy [a] (pprint a) a)
+
 
 (defn proxy-handler1 [backends-ch req]
   (println [:req req :ch backends-ch] )
