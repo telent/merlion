@@ -30,15 +30,12 @@
   (let [[address port] (str/split a #":")]
     {:address address :port (Integer/parseInt port)}))
 
-
 (defn make-backend-channel [backend]
   (let [ch (chan)
         backend-addr (parse-address (:listen-address backend))]
     (go
       (loop []
         (when-let [[req out-ch] (<! ch)]
-          (println [:got-backend-req
-                    backend-addr])
           (>! out-ch
               (http/request (assoc req
                                    :raw-stream? true
@@ -46,8 +43,7 @@
                                    :server-name (:address backend-addr)
                                    :server-port (:port  backend-addr))))
           (close! out-ch)
-          (println "done")
-          (recur )))
+          (recur)))
       (println [:shutdown backend]))
     ch))
 
@@ -84,9 +80,6 @@
                                  (make-backend-channel v)))))
                {}
                (apply dissoc new-backends deleted))))
-
-(defn print-state [l b]
-  (pprint {:listeners l :backends b}))
 
 (defn s->millepoch-time [s]
   (.getTimeInMillis (clojure.instant/read-instant-calendar s)))
