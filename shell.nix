@@ -9,6 +9,7 @@ in stdenv.mkDerivation {
       etcd 
       jq
       openssl
+      apacheHttpd
       ];
     M2REPOSITORY = ''m2repo'';
     buildPhase = ''
