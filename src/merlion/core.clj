@@ -18,12 +18,9 @@
         (etcd/watch-prefix new-prefix))))
 (defn spy [a] (pprint a) a)
 
-
 (defn proxy-handler1 [backends-ch req]
-  (println [:req req :ch backends-ch] )
-  (println :L)
   (let [ch (chan)]
-    (async/put! backends-ch [req ch])
+    (async/>!! backends-ch [req ch])
     (s/take! (s/->source ch))))
 
 (defn proxy-handler [ch req]
