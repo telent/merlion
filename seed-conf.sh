@@ -12,12 +12,13 @@ if [ "$1" = "clean" ] ; then
 fi
 
 conf $prefix/upstream-service-etcd-prefix /service/$site
-conf $prefix/upstream-freshness 10
+conf $prefix/upstream-freshness 3600
 conf $prefix/log-format edn
-conf $prefix/listen-address localhost:8088
+conf $prefix/listen-address localhost:8087
 
-#conf /service/$site/afs1/listen-address "localhost:4567"
-#conf /service/$site/afs1/last-seen-at "$(TZ=UTC date -Iseconds)"
-conf /service/$site/fg1/listen-address "localhost:8001"
-conf /service/$site/fg1/last-seen-at "$(TZ=UTC date -Iseconds| sed 's/+/%2b/' )"
+conf /service/$site/afs1/listen-address "localhost:8023"
+conf /service/$site/afs1/last-seen-at "$(TZ=UTC date -Iseconds| sed 's/+/%2b/' )"
+
+conf /service/$site/afs2/listen-address "localhost:8024"
+conf /service/$site/afs2/last-seen-at "$(TZ=UTC date -Iseconds| sed 's/+/%2b/' )"
 

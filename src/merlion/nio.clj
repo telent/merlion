@@ -3,12 +3,17 @@
            [java.net InetSocketAddress]
            [java.nio.channels SocketChannel ServerSocketChannel
             Selector SelectionKey])
-  (:require [clojure.java.io :as io]
+  (:require [merlion.etcd :as etcd]
+            [clojure.java.io :as io]
             [clojure.pprint :refer [pprint]]
             [clojure.core.async :as async
              :refer [<! go chan >! close! alts!]]))
 
-(defn server-socket [port backends]
+(defn server-socket
+  "Opens a ServerSocketChannel listening on the specified TCP `port` then
+repeatedly accepts a connection and sends it to the first chan from
+`backends` to become ready"
+  [port backends]
   (let [ssc (ServerSocketChannel/open)
         addr (InetSocketAddress. port)]
     (.. ssc socket (bind addr))
@@ -60,12 +65,58 @@
       (loop []
         (let [socketchannel (<! ch)]
           (when socketchannel
-            (relay-to-backend socketchannel host port)
-            (.close socketchannel)
+            (when (instance? SocketChannel socketchannel)
+              (relay-to-backend socketchannel host port)
+              (.close socketchannel))
             (recur)))))
     ch))
 
-(defn bend [port]
-  (let [backend (backend-chan "127.0.0.1" 8023)]
-    (server-socket port [backend])
-    backend))
+(defn update-backends [backends config]
+  (pprint [:in-update-backends config])
+  (map #(let [a (merlion.core/parse-address (:listen-address %))]
+          (assoc % :chan (backend-chan (:address a) (:port a))))
+       (vals (:backends config))))
+
+(defn get-port [listener]
+  (.. listener socket getLocalPort))
+
+(defn update-listener [listener config]
+  (if-let [req-addr (get-in config [:config :listen-address])]
+    (let [req-port (:port (merlion.core/parse-address req-addr))]
+      (if (and listener
+               (= (get-port listener) req-port))
+        listener
+        (doto (ServerSocketChannel/open) (.bind (InetSocketAddress. req-port)))))
+    nil))
+
+(defn run-server [prefix]
+  ;; what are we trying to do?
+  ;; listen for config changes
+  ;; - when new backends, create backend-chan for them
+  ;;   (how do we update existing listeners to see new backends?)
+  ;; - when new listen-address, open a serversocketchannel
+  ;; - when any backend ready for a new connection, send it the latest
+  ;;   result of accept or something it can use to call accept
+  (let [config-ch (merlion.core/combined-config-watcher prefix)
+        shutdown (chan)]
+    (go
+      (loop [backends []
+             listener nil
+             config {}]
+        (let [[val ch] (alts!
+                        (conj
+                         (map #(vector (:chan %) :ready) backends)
+                         config-ch
+                         shutdown))]
+          (cond (= ch config-ch)
+                (recur (update-backends backends val)
+                       (update-listener listener val)
+                       val)
+
+                (= ch shutdown)
+                (do (println "quit") (.close listener))
+
+                :else
+                (do (and listener (>! ch (.accept listener)))
+                    (recur backends listener config))))))
+    shutdown))
