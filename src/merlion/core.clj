@@ -1,9 +1,10 @@
-(ns merlion.nio
+(ns merlion.core
   (:import [java.nio Buffer ByteBuffer]
            [java.net InetSocketAddress]
            [java.nio.channels SocketChannel ServerSocketChannel
             Selector SelectionKey])
   (:require [merlion.etcd :as etcd]
+            [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.pprint :refer [pprint]]
             [clojure.core.async :as async
@@ -71,9 +72,13 @@ repeatedly accepts a connection and sends it to the first chan from
             (recur)))))
     ch))
 
+(defn parse-address [a]
+  (let [[address port] (str/split a #":")]
+    {:address address :port (Integer/parseInt port)}))
+
 (defn update-backends [backends config]
   (pprint [:in-update-backends config])
-  (map #(let [a (merlion.core/parse-address (:listen-address %))]
+  (map #(let [a (parse-address (:listen-address %))]
           (assoc % :chan (backend-chan (:address a) (:port a))))
        (vals (:backends config))))
 
@@ -82,12 +87,30 @@ repeatedly accepts a connection and sends it to the first chan from
 
 (defn update-listener [listener config]
   (if-let [req-addr (get-in config [:config :listen-address])]
-    (let [req-port (:port (merlion.core/parse-address req-addr))]
+    (let [req-port (:port (parse-address req-addr))]
       (if (and listener
                (= (get-port listener) req-port))
         listener
         (doto (ServerSocketChannel/open) (.bind (InetSocketAddress. req-port)))))
     nil))
+
+(defn combined-config-watcher [prefix]
+  (let [config-watcher (etcd/watch-prefix prefix)
+        out-ch (chan)]
+    (go
+      (loop [backend-prefix nil
+             backend-watcher nil]
+        (let [config (etcd/get-prefix prefix)
+              new-bp (:upstream-service-etcd-prefix config)
+              backend-watcher
+              (if (and backend-watcher (= new-bp backend-prefix))
+                backend-watcher
+                (and new-bp (etcd/watch-prefix new-bp)))]
+          (>! out-ch {:config config
+                      :backends (if new-bp (etcd/get-prefix new-bp) {})})
+          (alts! (remove nil? [config-watcher backend-watcher]))
+          (recur new-bp backend-watcher))))
+    out-ch))
 
 (defn run-server [prefix]
   ;; what are we trying to do?
