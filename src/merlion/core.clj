@@ -1,160 +1,122 @@
-(ns merlion.core
+(ns merlion.nio
+  (:import [java.nio Buffer ByteBuffer]
+           [java.net InetSocketAddress]
+           [java.nio.channels SocketChannel ServerSocketChannel
+            Selector SelectionKey])
   (:require [merlion.etcd :as etcd]
+            [clojure.java.io :as io]
             [clojure.pprint :refer [pprint]]
-            [manifold.stream :as s]
-            [manifold.deferred :as d]
-            [clojure.string :as str]
-            [clojure.set :as set]
-            [clojure.instant]
             [clojure.core.async :as async
-             :refer [<! go chan >! close! alts!]]
-            [aleph.http :as http])
-  (:gen-class))
+             :refer [<! go chan >! close! alts!]]))
 
-(defn spy [a] (pprint a) a)
+(defn server-socket
+  "Opens a ServerSocketChannel listening on the specified TCP `port` then
+repeatedly accepts a connection and sends it to the first chan from
+`backends` to become ready"
+  [port backends]
+  (let [ssc (ServerSocketChannel/open)
+        addr (InetSocketAddress. port)]
+    (.. ssc socket (bind addr))
+    (go (loop []
+          (let [sock (.accept ssc)
+                ports (map #(vector % sock) backends)]
+            (if (first (alts! ports))
+              (recur)
+              ))))))
 
-(defn proxy-handler1 [backends-ch req]
+(defn copy-channel [in out buffer]
+  (let [bytes (.read in buffer)]
+    (when (> bytes -1)
+      (.flip buffer)
+      (.write out buffer)
+      (.clear buffer)
+      true)))
+
+(defn relay-to-backend [socketchannel host port]
+  (.configureBlocking socketchannel false)
+  (let [sbuffer (ByteBuffer/allocate 8192)
+        obuffer (ByteBuffer/allocate 8192)
+        bo (Selector/open)
+        skey (.register socketchannel bo SelectionKey/OP_READ)
+        outchannel (doto (SocketChannel/open)
+                     (.connect (InetSocketAddress. host port))
+                     (.configureBlocking false))
+        skey2 (.register outchannel bo SelectionKey/OP_READ)]
+    (loop []
+      (let [ready (.select bo)
+            keys (.selectedKeys bo)
+            key (first (seq keys))]
+        (when key
+          (.remove keys key)
+          (condp = (.channel key)
+            socketchannel
+            (when (copy-channel socketchannel outchannel sbuffer) (recur))
+            outchannel
+            (when (copy-channel outchannel socketchannel obuffer) (recur))))))
+    (.close outchannel)
+    (.close bo)
+    ))
+
+(defn backend-chan
+  "a channel that accepts nio SocketChannels and relays the data being sent to them onto a new connection to host:port"
+  [host port]
   (let [ch (chan)]
-    (async/>!! backends-ch [req ch])
-    (s/take! (s/->source ch))))
-
-(defn proxy-handler [ch req]
-  (proxy-handler1 ch req))
-
-(defn parse-address [a]
-  (let [[address port] (str/split a #":")]
-    {:address address :port (Integer/parseInt port)}))
-
-(defn make-backend-channel [backend]
-  (let [ch (chan)
-        backend-addr (parse-address (:listen-address backend))]
     (go
       (loop []
-        (when-let [[req out-ch] (<! ch)]
-          (>! out-ch
-              (http/request (assoc req
-                                   :raw-stream? true
-                                   :follow-redirects? false
-                                   :server-name (:address backend-addr)
-                                   :server-port (:port  backend-addr))))
-          (close! out-ch)
-          (recur)))
-      (println [:shutdown backend]))
+        (let [socketchannel (<! ch)]
+          (when socketchannel
+            (when (instance? SocketChannel socketchannel)
+              (relay-to-backend socketchannel host port)
+              (.close socketchannel))
+            (recur)))))
     ch))
 
-(defn s->millepoch-time [s]
-  (.getTimeInMillis (clojure.instant/read-instant-calendar s)))
+(defn update-backends [backends config]
+  (pprint [:in-update-backends config])
+  (map #(let [a (merlion.core/parse-address (:listen-address %))]
+          (assoc % :chan (backend-chan (:address a) (:port a))))
+       (vals (:backends config))))
 
-(defn millepoch-time-now []
-  (.getTime (java.util.Date.)))
+(defn get-port [listener]
+  (.. listener socket getLocalPort))
 
-(defn healthy-backend?
-  "true if backend seen more recently than time"
-  [time b]
-  (> (:last-seen-at-millepoch b) time))
-
-(defn combined-config-watcher [prefix]
-  (let [config-watcher (etcd/watch-prefix prefix)
-        out-ch (chan)]
-    (go
-      (loop [backend-prefix nil
-             backend-watcher nil]
-        (let [config (etcd/get-prefix prefix)
-              new-bp (:upstream-service-etcd-prefix config)
-              backend-watcher
-              (if (and backend-watcher (= new-bp backend-prefix))
-                backend-watcher
-                (and new-bp (etcd/watch-prefix new-bp)))]
-          (>! out-ch {:config config
-                      :backends (if new-bp (etcd/get-prefix new-bp) {})})
-          (alts! (remove nil? [config-watcher backend-watcher]))
-          (recur new-bp backend-watcher))))
-    out-ch))
-
-(defn update-backends-state [app-state backends-spec]
-  (let [before (reduce (fn [m bk]
-                         (assoc m (:listen-address bk) bk))
-                       {}
-                       (:backends app-state))
-        after  (reduce (fn [m bk]
-                         (assoc m (:listen-address bk) bk))
-                       {}
-                       (vals backends-spec))
-        b-addrs (set (keys before))
-        a-addrs (set (keys after))
-        deleted (set/difference b-addrs a-addrs)
-        create (set/difference a-addrs b-addrs)]
-    (pprint [:update-backends before after deleted create])
-    (dorun (map (fn [b] (close! (:channel (get before b)))) deleted))
-    (map (fn [a]
-           (let [bk (get after a)]
-             (assoc bk
-                    :channel
-                    (or (:channel (get before a))
-                        (make-backend-channel bk))
-                    :last-seen-at-millepoch
-                    (s->millepoch-time (:last-seen-at bk))
-                    )))
-         a-addrs)))
-
-(defn open-listener [addr dispatch-ch]
-  (http/start-server (partial proxy-handler dispatch-ch)
-                     (parse-address addr)))
-
-(defn update-app-state [app-state m]
-  (println [:update-app-state app-state m])
-  (let [dispatch-ch (:dispatch-channel app-state)
-        config (:config m)
-        backends-spec (:backends m)
-        addr (:listen-address config)]
-    (assoc app-state
-           :upstream-freshness-ms
-           (* 1000 (Integer/parseInt (:upstream-freshness config)))
-           :dispatch-channel dispatch-ch
-           :listen-address (:listen-address config)
-           :listener
-           (if-let [l (:listener app-state)]
-             (if (= (:listen-address app-state) addr)
-               l
-               (do
-                 (.close l)
-                 (open-listener addr dispatch-ch)))
-             (open-listener addr dispatch-ch))
-           :backends (update-backends-state app-state backends-spec))))
+(defn update-listener [listener config]
+  (if-let [req-addr (get-in config [:config :listen-address])]
+    (let [req-port (:port (merlion.core/parse-address req-addr))]
+      (if (and listener
+               (= (get-port listener) req-port))
+        listener
+        (doto (ServerSocketChannel/open) (.bind (InetSocketAddress. req-port)))))
+    nil))
 
 (defn run-server [prefix]
-  (let [config-ch (combined-config-watcher prefix)
-        shutdown-ch (chan)
-        dispatcher-ch (chan)]
+  ;; what are we trying to do?
+  ;; listen for config changes
+  ;; - when new backends, create backend-chan for them
+  ;;   (how do we update existing listeners to see new backends?)
+  ;; - when new listen-address, open a serversocketchannel
+  ;; - when any backend ready for a new connection, send it the latest
+  ;;   result of accept or something it can use to call accept
+  (let [config-ch (merlion.core/combined-config-watcher prefix)
+        shutdown (chan)]
     (go
-      (loop [app-state {:dispatch-channel dispatcher-ch}]
-        (let [backends (:backends app-state)
-              [val ch] (alts! [config-ch dispatcher-ch shutdown-ch])]
-          (condp = ch
-            config-ch
-            (recur (spy (update-app-state app-state val)))
-            dispatcher-ch
-            (let [since (- (millepoch-time-now)
-                           (:upstream-freshness-ms app-state))
-                  good-backends (filter (partial healthy-backend? since)
-                                        backends)]
-              (if (seq good-backends)
-                (alts! (map (fn [b] [(:channel b) val]) good-backends))
-                (>! (second val) {:status 500 :headers {}
-                                  :body "No healthy downstreams"}))
-              (recur app-state))
-            shutdown-ch
-            (do
-              (dorun (map (fn [b] (async/close! (:channel b))) backends))
-              (when-let [l (:listener app-state)]
-                (.close l))
-              (println "stopping"))))))
-    shutdown-ch))
+      (loop [backends []
+             listener nil
+             config {}]
+        (let [[val ch] (alts!
+                        (conj
+                         (map #(vector (:chan %) :ready) backends)
+                         config-ch
+                         shutdown))]
+          (cond (= ch config-ch)
+                (recur (update-backends backends val)
+                       (update-listener listener val)
+                       val)
 
-(defn -main
-  "I don't do a whole lot ... yet."
-  [& args]
-  (println "Hello, World!")
-  (let [s (run-server (first args))]
-    (Thread/sleep (* (Integer/parseInt (second args)) 1000))
-    (async/put! s :done)))
+                (= ch shutdown)
+                (do (println "quit") (.close listener))
+
+                :else
+                (do (and listener (>! ch (.accept listener)))
+                    (recur backends listener config))))))
+    shutdown))
