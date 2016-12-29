@@ -8,7 +8,7 @@
             [clojure.java.io :as io]
             [clojure.pprint :refer [pprint]]
             [clojure.core.async :as async
-             :refer [<! go chan >! close! alts!]]))
+             :refer [<! <!! go chan >! close! alts!]]))
 
 (defn server-socket
   "Opens a ServerSocketChannel listening on the specified TCP `port` then
@@ -62,9 +62,9 @@ repeatedly accepts a connection and sends it to the first chan from
   "a channel that accepts nio SocketChannels and relays the data being sent to them onto a new connection to host:port"
   [host port]
   (let [ch (chan)]
-    (go
+    (future
       (loop []
-        (let [socketchannel (<! ch)]
+        (let [socketchannel (.accept (<!! ch))]
           (when socketchannel
             (when (instance? SocketChannel socketchannel)
               (relay-to-backend socketchannel host port)
@@ -128,7 +128,7 @@ repeatedly accepts a connection and sends it to the first chan from
              config {}]
         (let [[val ch] (alts!
                         (conj
-                         (map #(vector (:chan %) :ready) backends)
+                         (map #(vector (:chan %) listener) backends)
                          config-ch
                          shutdown))]
           (cond (= ch config-ch)
@@ -140,6 +140,6 @@ repeatedly accepts a connection and sends it to the first chan from
                 (do (println "quit") (.close listener))
 
                 :else
-                (do (and listener (>! ch (.accept listener)))
+                (do (and listener (>! ch listener))
                     (recur backends listener config))))))
     shutdown))
