@@ -1,16 +1,29 @@
 # merlion
 
-An etcd-friendly HTTP proxy, following the
+An etcd-friendly TCP proxy, following the
 ["autopilot"]
 (https://www.joyent.com/blog/app-centric-micro-orchestration) pattern
 described by Casey Bisson at Joyent.  Reconfigures itself
 dynamically when backends change.
+
+## Cautionary note
 
 **This project is conducted using README-Driven Development, or
 something vaguely akin to it.  You should probably, therefore, treat
 this document as a statement of how I wish things would be, rather
 than as a claim that this is presently how they in fact are**
 
+As of Dec 2016:
+
+* Poking gently at it, it seems to work,  but it's never actually
+been used for realz
+
+* (On my machine, at least) listeners bind to the ipv6 wildcard
+  address no matter what address you tell it to use
+
+* health checks currently unimplemented
+
+* logging ditto (logging may go away completely)
 
 ## Installation
 
@@ -56,8 +69,9 @@ Each etcd directory node within the configured prefix is added as a valid servic
 * do not drop "in-flight" requests on the frontend or backend when
   configuration changes
 
-* performance should be "what you'd expect from netty" - as it's based
-  on netty.
+* performance should be "adeqate to the task": this is intended to be
+  used in front of some kind of dynamic web application server so
+  ideally shouldn't be much slower than running that server directly.
 
 * per the *autopilot pattern*, the responsibility of ensuring that a
   backend is healthy is the backend's: as long as it thrives, it
