@@ -116,13 +116,6 @@ repeatedly accepts a connection and sends it to the first chan from
     out-ch))
 
 (defn run-server [prefix]
-  ;; what are we trying to do?
-  ;; listen for config changes
-  ;; - when new backends, create backend-chan for them
-  ;;   (how do we update existing listeners to see new backends?)
-  ;; - when new listen-address, open a serversocketchannel
-  ;; - when any backend ready for a new connection, send it the latest
-  ;;   result of accept or something it can use to call accept
   (let [config-ch (merlion.core/combined-config-watcher prefix)
         shutdown (chan)]
     (go
@@ -143,6 +136,5 @@ repeatedly accepts a connection and sends it to the first chan from
                 (do (println "quit") (.close listener))
 
                 :else
-                (do (and listener (>! ch listener))
-                    (recur backends listener config))))))
+                (recur backends listener config)))))
     shutdown))
