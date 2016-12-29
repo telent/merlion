@@ -87,11 +87,14 @@ repeatedly accepts a connection and sends it to the first chan from
 
 (defn update-listener [listener config]
   (if-let [req-addr (get-in config [:config :listen-address])]
-    (let [req-port (:port (parse-address req-addr))]
+    (let [req-port (:port (parse-address req-addr))
+          old-port (and listener (get-port listener))]
       (if (and listener
-               (= (get-port listener) req-port))
+               (= old-port req-port))
         listener
-        (doto (ServerSocketChannel/open) (.bind (InetSocketAddress. req-port)))))
+        (let [new-l (ServerSocketChannel/open)]
+          (and listener (.close listener))
+          (doto new-l (.bind (InetSocketAddress. req-port))))))
     nil))
 
 (defn combined-config-watcher [prefix]
