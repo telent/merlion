@@ -59,28 +59,50 @@ repeatedly accepts a connection and sends it to the first chan from
     ))
 
 (defn backend-chan
-  "a channel that accepts nio SocketChannels and relays the data being sent to them onto a new connection to host:port"
+  "a channel that repeatedly receives a nio ServerSocketChannel, accepts a new socket from it and relays the data being sent from/to it onto a new connection to host:port"
   [host port]
   (let [ch (chan)]
     (future
       (loop []
-        (let [socketchannel (.accept (<!! ch))]
-          (when socketchannel
-            (when (instance? SocketChannel socketchannel)
+        (let [ssc (<!! ch)]
+          (when ssc
+            (let [socketchannel (.accept ssc)]
               (relay-to-backend socketchannel host port)
               (.close socketchannel))
-            (recur)))))
+            (recur))))
+      (println ["backend thread quit" host port]))
     ch))
 
 (defn parse-address [a]
   (let [[address port] (str/split a #":")]
     {:address address :port (Integer/parseInt port)}))
 
+(defn s->millepoch-time [s]
+  (.getTimeInMillis (clojure.instant/read-instant-calendar s)))
+
+(defn millepoch-time-now []
+  (.getTime (java.util.Date.)))
+
 (defn update-backends [backends config]
-  (pprint [:in-update-backends config])
-  (map #(let [a (parse-address (:listen-address %))]
-          (assoc % :chan (backend-chan (:address a) (:port a))))
-       (vals (:backends config))))
+  (let [existing (keys backends)
+        wanted (keys (:backends config))
+        unwanted (clojure.set/difference (set existing) (set wanted))]
+    (run! close! (map #(:chan (get backends %)) unwanted))
+    (reduce (fn [m [n v]]
+              (let [a (parse-address (:listen-address v))]
+                (assoc m
+                       n
+                       (or ;(get backends n)
+                           (assoc v
+                                  :name n
+                                  :chan (backend-chan (:address a) (:port a))
+                                  :last-seen-at-ms
+                                  (if-let [ls (:last-seen-at v)]
+                                    (s->millepoch-time ls)
+                                    0)
+                                  )))))
+            {}
+            (:backends config))))
 
 (defn get-port [listener]
   (.. listener socket getLocalPort))
@@ -115,16 +137,29 @@ repeatedly accepts a connection and sends it to the first chan from
           (recur new-bp backend-watcher))))
     out-ch))
 
+(defn seen-since? [timestamp backend]
+  (> (:last-seen-at-ms backend) timestamp))
+
+(defn healthy-backends [timestamp backends]
+  (let [h (filter (partial seen-since? timestamp) (vals backends))]
+    (if (seq h)
+      (println ["backends " (map :name h)])
+      (println ["no healthy backends "]))
+    h))
+
 (defn run-server [prefix]
   (let [config-ch (merlion.core/combined-config-watcher prefix)
         shutdown (chan)]
     (go
-      (loop [backends []
+      (loop [backends {}
              listener nil
              config {}]
-        (let [[val ch] (alts!
+        (let [timestamp (- (millepoch-time-now) (* 10 1000))
+              healthy (healthy-backends timestamp backends)
+              [val ch] (alts!
                         (conj
-                         (map #(vector (:chan %) listener) backends)
+                         (map #(vector (:chan %) listener)
+                              healthy)
                          config-ch
                          shutdown))]
           (cond (= ch config-ch)

@@ -11,14 +11,16 @@ if [ "$1" = "clean" ] ; then
     exit 0
 fi
 
+conf $prefix/upstream-freshness 30
+
 conf $prefix/upstream-service-etcd-prefix /service/$site
-conf $prefix/upstream-freshness 3600
 conf $prefix/log-format edn
-conf $prefix/listen-address localhost:8087
+conf $prefix/listen-address localhost:8088
 
 conf /service/$site/afs1/listen-address "localhost:8023"
 conf /service/$site/afs1/last-seen-at "$(TZ=UTC date -Iseconds| sed 's/+/%2b/' )"
 
-conf /service/$site/afs2/listen-address "localhost:8024"
-conf /service/$site/afs2/last-seen-at "$(TZ=UTC date -Iseconds| sed 's/+/%2b/' )"
+conf /service/$site/afse/listen-address "localhost:8024"
+conf /service/$site/afse/last-seen-at "$(TZ=UTC date -Iseconds| sed 's/+/%2b/' )"
+
 
