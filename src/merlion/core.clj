@@ -34,14 +34,6 @@ repeatedly accepts a connection and sends it to the first chan from
               (recur)
               ))))))
 
-(defn copy-channel [in out buffer]
-  (let [bytes (.read in buffer)]
-    (when (> bytes -1)
-      (.flip buffer)
-      (.write out buffer)
-      (.clear buffer)
-      true)))
-
 
 (defn write-pending-buffer [w]
   (let [ch (:to-channel w)
