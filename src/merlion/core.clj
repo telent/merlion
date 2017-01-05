@@ -132,7 +132,13 @@ repeatedly accepts a connection and sends it to the first chan from
         (is (ready-for? ready ssh :write)))
       (let [msg (ByteBuffer/wrap (.getBytes "hello world\n"))]
         (.write ssh msg)
-        (is (ready-for? (poll-channels [[ssh :read]] 1000) ssh :read))))))
+        (is (ready-for? (poll-channels [[ssh :read]] 1357) ssh :read))))))
+
+(defn accept-connection [socket]
+  (let [s1 (.accept socket)]
+    (when s1
+      (doto s1
+        (.configureBlocking false)))))
 
 (defn backend [serversocket host port finished-ch]
   (let [bytebuffer (ByteBuffer/allocate 8192)]
@@ -216,14 +222,15 @@ repeatedly accepts a connection and sends it to the first chan from
             ;; Note this may block in connect(), I haven't decided if that's
             ;; bad or not
             (get ready-channels serversocket)
-            (let [sock (doto (.accept serversocket)
-                         (.configureBlocking false))]
+            (let [sock (accept-connection serversocket)]
               (recur nil
-                     (assoc downstreams-for-upstreams
-                            sock
-                            (doto (SocketChannel/open)
-                              (.connect (InetSocketAddress. host port))
-                              (.configureBlocking false)))))
+                     (if sock
+                       (assoc downstreams-for-upstreams
+                              sock
+                              (doto (SocketChannel/open)
+                                (.connect (InetSocketAddress. host port))
+                                (.configureBlocking false)))
+                       downstreams-for-upstreams)))
             :default
             (do
               (println "timeout")
