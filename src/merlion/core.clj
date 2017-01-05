@@ -46,11 +46,16 @@ repeatedly accepts a connection and sends it to the first chan from
 (defn write-pending-buffer [w]
   (let [ch (:to-channel w)
         b (:buffer w)]
-    (.write ch b)
-    (if (.hasRemaining b) w nil)))
+    (if (:eof? w)
+      w
+      (do
+        (.write ch b)
+        (if (.hasRemaining b)
+          w
+          (do (.clear b) nil))))))
 
-(defn read-pending-buffer [from-channel to-channel]
-  (let [b (ByteBuffer/allocate 8192)
+(defn read-pending-buffer [buffer from-channel to-channel]
+  (let [b buffer
         c (.read from-channel b)]
     (cond
       (zero? c) nil
@@ -138,98 +143,102 @@ repeatedly accepts a connection and sends it to the first chan from
         (is (ready-for? (poll-channels [[ssh :read]] 1000) ssh :read))))))
 
 (defn backend [serversocket host port finished-ch]
-  (loop [pending-write false
-         downstreams-for-upstreams {}]
-    ;; BACKPRESSURE - we do things in a very specific order.  This is
-    ;; to ensure that we do not look at any avenues for accepting new
-    ;; work (data
-    ;; available on client connections, or new client connections) until
-    ;; we have dealt with current work, and thus that if the downstream
-    ;; is slow to accept our writes or slow to read from, we become
-    ;; slower as a result instead of spraying it with even more work it
-    ;; can't cope with.
-    (let [downstreams (set (vals downstreams-for-upstreams))
-          upstreams (set (keys downstreams-for-upstreams))
-          upstreams-for-downstreams
-          (set/map-invert downstreams-for-upstreams)
-          poll-set
-          (if pending-write
-            [[(:to-channel pending-write) :write]]
-            (concat (map #(vector % :read ) downstreams)
-                    (map #(vector % :read ) upstreams)
-                    [[serversocket :accept]]))]
-      (let [ready (poll-channels poll-set 1000)
-            ready-channels (set (map :channel ready))
+  (let [bytebuffer (ByteBuffer/allocate 8192)]
+    (loop [pending-write false
+           downstreams-for-upstreams {}]
+      ;; BACKPRESSURE - we do things in a very specific order.  This is
+      ;; to ensure that we do not look at any avenues for accepting new
+      ;; work (data
+      ;; available on client connections, or new client connections) until
+      ;; we have dealt with current work, and thus that if the downstream
+      ;; is slow to accept our writes or slow to read from, we become
+      ;; slower as a result instead of spraying it with even more work it
+      ;; can't cope with.
+      (let [downstreams (set (vals downstreams-for-upstreams))
+            upstreams (set (keys downstreams-for-upstreams))
+            upstreams-for-downstreams
+            (set/map-invert downstreams-for-upstreams)
+            poll-set
+            (if pending-write
+              [[(:to-channel pending-write) :write]]
+              (concat (map #(vector % :read ) downstreams)
+                      (map #(vector % :read ) upstreams)
+                      [[serversocket :accept]]))]
+        (let [ready (poll-channels poll-set 1000)
+              ready-channels (set (map :channel ready))
+              readable-ds
+              (first (filter (fn [s]
+                               (and (poll-op? (:ops s) [:read])
+                                    (get downstreams (:channel s))))
+                             ready))
+              readable-us
+              (first (filter (fn [s]
+                               (and (poll-op? (:ops s) [:read])
+                                    (get upstreams (:channel s))))
+                             ready))
+              ]
+          (cond
+            ;; Quit when we get a finished message
+            (async/poll! finished-ch)
+            nil
+
+            ;; Zeroth, close the corresponding down/upstream for any up/downstream
+            ;; on which we received eof while reading
+            (and pending-write (:eof? pending-write))
+            (let [fch (:from-channel pending-write)
+                  tch (:to-channel pending-write)]
+              (.close fch)
+              (.close tch)
+              (recur nil (dissoc downstreams-for-upstreams fch tch)))
+
+            ;; First deal with any unwritten buffer to/from the downstream.  We do not
+            ;; get past this point until the in-flight buffer is disposed of
+
+            pending-write
+            (let [r (ready-for? ready (:to-channel pending-write) :write)]
+              (if r
+                (recur (write-pending-buffer pending-write)
+                       downstreams-for-upstreams)
+                (recur pending-write
+                       downstreams-for-upstreams)))
+
+            ;; Next deal with readable downstreams
             readable-ds
-            (first (filter (fn [s]
-                             (and (poll-op? (:ops s) [:read])
-                                  (get downstreams (:channel s))))
-                           ready))
+            (do
+              (let [c (:channel readable-ds)]
+                (recur (write-pending-buffer
+                        (read-pending-buffer bytebuffer
+                                             c (upstreams-for-downstreams c)))
+                       downstreams-for-upstreams)))
+
+            ;; Next look at new work from existing upstream requests
             readable-us
-            (first (filter (fn [s]
-                             (and (poll-op? (:ops s) [:read])
-                                  (get upstreams (:channel s))))
-                           ready))
-            ]
-        (cond
-          ;; Quit when we get a finished message
-          (async/poll! finished-ch)
-          nil
+            (do
+              (let [c (:channel readable-us)]
+                (recur (write-pending-buffer
+                        (read-pending-buffer bytebuffer c
+                                             (downstreams-for-upstreams c)))
+                       downstreams-for-upstreams)))
 
-          ;; Zeroth, close the corresponding down/upstream for any up/downstream
-          ;; we received eof while reading
-          (and pending-write (:eof? pending-write))
-          (let [fch (:from-channel pending-write)
-                tch (:to-channel pending-write)]
-            (.close fch)
-            (.close tch)
-            (recur nil (dissoc downstreams-for-upstreams fch tch)))
-
-          ;; First deal with any unwritten buffer to/from the downstream.  We do not
-          ;; get past this point until the in-flight buffer is disposed of
-
-          pending-write
-          (let [r (ready-for? ready (:to-channel pending-write) :write)]
-            (if r
-              (recur (write-pending-buffer pending-write)
-                     downstreams-for-upstreams)
-              (recur pending-write
-                     downstreams-for-upstreams)))
-
-          ;; Next deal with readable downstreams
-          readable-ds
-          (do
-            (let [c (:channel readable-ds)]
-              (recur (read-pending-buffer c (upstreams-for-downstreams c))
-                     downstreams-for-upstreams)))
-
-          ;; Next look at new work from existing upstream requests
-          readable-us
-          (do
-            (let [c (:channel readable-us)]
-              (recur (read-pending-buffer c
-                                          (downstreams-for-upstreams c))
-                     downstreams-for-upstreams)))
-
-          ;; We can pick up a new upstream request if nothing else to do.
-          ;; Note this may block in connect(), I haven't decided if that's
-          ;; bad or not
-          (get ready-channels serversocket)
-          (let [sock (doto (.accept serversocket)
-                       (.configureBlocking false))]
-            (recur nil
-                   (assoc downstreams-for-upstreams
-                          sock
-                          (doto (SocketChannel/open)
-                            (.connect (InetSocketAddress. host port))
-                            (.configureBlocking false)))))
-          :default
-          (do
-            (println "timeout")
-            (recur pending-write downstreams-for-upstreams))
+            ;; We can pick up a new upstream request if nothing else to do.
+            ;; Note this may block in connect(), I haven't decided if that's
+            ;; bad or not
+            (get ready-channels serversocket)
+            (let [sock (doto (.accept serversocket)
+                         (.configureBlocking false))]
+              (recur nil
+                     (assoc downstreams-for-upstreams
+                            sock
+                            (doto (SocketChannel/open)
+                              (.connect (InetSocketAddress. host port))
+                              (.configureBlocking false)))))
+            :default
+            (do
+              (println "timeout")
+              (recur pending-write downstreams-for-upstreams))
 
 
-          )))))
+            ))))))
 
 
 (defn backend-chan
