@@ -92,6 +92,15 @@ repeatedly accepts a connection and sends it to the first chan from
               :c2
               :write)))))
 
+(defn poll-selector [bo timeout]
+  (if-not (zero? (.select bo timeout))
+    (let [ready (.selectedKeys bo)
+          v (doall (map (fn [k]
+                          {:channel (.channel k)
+                           :ops (.readyOps k)})
+                        ready))]
+      (.clear ready)
+      v)))
 
 (defn poll-channels [poll-set timeout]
   (with-open [bo (reduce (fn [s [channel & ops]]
@@ -99,13 +108,8 @@ repeatedly accepts a connection and sends it to the first chan from
                            s)
                          (Selector/open)
                          poll-set)]
-    (if-not (zero? (.select bo timeout))
-      (let [ready (.selectedKeys bo)]
-        (doall ; have to force evaluation of this before closing selector
-         (map (fn [k]
-                {:channel (.channel k)
-                 :ops (.readyOps k)})
-              ready))))))
+    (doall ; have to force evaluation of this before closing selector
+     (poll-selector bo timeout))))
 
 (deftest poll-test
   (testing "timeout"
@@ -140,8 +144,23 @@ repeatedly accepts a connection and sends it to the first chan from
       (doto s1
         (.configureBlocking false)))))
 
+(defn new-selector [channel ops]
+  (let [s (Selector/open)]
+    (.register channel s (poll-ops-mask ops))
+    s))
+
+(defn update-selector-for-writing [selector w]
+  (when-not (:eof? w)
+    (let [c (:to-channel w)]
+      (run! #(or (= c (.channel %)) (.cancel %)) (.keys selector))
+      (.register c selector (poll-ops-mask [:write]))
+    selector)))
+
+
 (defn backend [serversocket host port finished-ch]
-  (let [bytebuffer (ByteBuffer/allocate 8192)]
+  (let [bytebuffer (ByteBuffer/allocate 8192)
+        selector (new-selector serversocket [:accept])
+        write-selector (Selector/open)]
     (loop [pending-write false
            downstreams-for-upstreams {}]
       ;; BACKPRESSURE - we do things in a very specific order.  This is
@@ -156,13 +175,11 @@ repeatedly accepts a connection and sends it to the first chan from
             upstreams (set (keys downstreams-for-upstreams))
             upstreams-for-downstreams
             (set/map-invert downstreams-for-upstreams)
-            poll-set
-            (if pending-write
-              [[(:to-channel pending-write) :write]]
-              (concat (map #(vector % :read ) downstreams)
-                      (map #(vector % :read ) upstreams)
-                      [[serversocket :accept]]))]
-        (let [ready (poll-channels poll-set 1000)
+            sel (or
+                 (and pending-write
+                      (update-selector-for-writing write-selector pending-write))
+                 selector)]
+        (let [ready (poll-selector sel 10000)
               ready-channels (set (map :channel ready))
               readable-ds
               (first (filter (fn [s]
@@ -185,11 +202,12 @@ repeatedly accepts a connection and sends it to the first chan from
             (and pending-write (:eof? pending-write))
             (let [fch (:from-channel pending-write)
                   tch (:to-channel pending-write)]
-              (.close fch)
-              (.close tch)
+              (.close fch)              ;this also causes removal of these
+              (.close tch)              ;channels from the selector
               (recur nil (dissoc downstreams-for-upstreams fch tch)))
 
-            ;; First deal with any unwritten buffer to/from the downstream.  We do not
+            ;; First deal with any unwritten buffer to/from the
+            ;; downstream.  We do not
             ;; get past this point until the in-flight buffer is disposed of
 
             pending-write
@@ -222,21 +240,18 @@ repeatedly accepts a connection and sends it to the first chan from
             ;; Note this may block in connect(), I haven't decided if that's
             ;; bad or not
             (get ready-channels serversocket)
-            (let [sock (accept-connection serversocket)]
-              (recur nil
-                     (if sock
-                       (assoc downstreams-for-upstreams
-                              sock
-                              (doto (SocketChannel/open)
-                                (.connect (InetSocketAddress. host port))
-                                (.configureBlocking false)))
-                       downstreams-for-upstreams)))
+            (if-let [sock (accept-connection serversocket)]
+              (let [ds (doto (SocketChannel/open)
+                         (.connect (InetSocketAddress. host port))
+                         (.configureBlocking false))
+                    mask (poll-ops-mask [:read])]
+                (.register sock selector mask)
+                (.register ds selector mask)
+                (recur nil (assoc downstreams-for-upstreams sock ds)))
+              (recur nil downstreams-for-upstreams))
+
             :default
-            (do
-              (println "timeout")
-              (recur pending-write downstreams-for-upstreams))
-
-
+            (recur pending-write downstreams-for-upstreams)
             ))))))
 
 
@@ -257,7 +272,7 @@ repeatedly accepts a connection and sends it to the first chan from
   (let [existing (keys backends)
         wanted (keys (:backends config))
         unwanted (set/difference (set existing) (set wanted))]
-    (println ["unwanted " unwanted])
+;    (println ["unwanted " unwanted])
     (run! close! (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n v]]
               (let [a (parse-address (:listen-address v))]
