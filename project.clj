@@ -4,6 +4,8 @@
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.8.0"]
+                 [me.raynes/conch "0.8.0"
+                  :exclusions [org.clojure/clojure]]
                  [aleph "0.4.1"]
                  [cheshire "5.6.3"]
                  [ring "1.5.0"]
@@ -13,4 +15,7 @@
   :main ^:skip-aot merlion.core
   :target-path "target/%s"
   :profiles {:repl {:plugins [[cider/cider-nrepl "0.12.0"]]}
+             :test {:dependencies [[me.raynes/conch "0.8.0"
+                                    :exclusions [org.clojure/clojure]
+                                    ]]}
              :uberjar {:aot :all}})

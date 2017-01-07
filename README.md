@@ -86,7 +86,7 @@ Each etcd directory node within the configured prefix is added as a valid servic
 
 ## License
 
-Copyright © 2016 Daniel Barlow
+Copyright © 2016,2017 Daniel Barlow
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
