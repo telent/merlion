@@ -136,19 +136,6 @@
           (etcd-rm (str "service/" domain-name "/aaa"))
           (is (= (slurp "test/fixtures/excerpt.txt") @f)))))))
 
-#_
-(deftest no-backend
-  (testing "fetches hang when no backends"
-    (let [be-process (socat "test/fixtures/excerpt.txt")]
-      (with-running-server [prefix port]
-        (Thread/sleep 500)
-        (let [before (java.util.Date.)
-              s (doto (java.net.Socket.)
-                  (.connect (java.net.InetSocketAddress. "127.0.0.1" port) 1000)
-                  (.setSoTimeout 1000))]
-          (is (thrown? java.net.SocketTimeoutException
-                       (slurp (io/reader (.getInputStream s))))))))))
-
 (deftest no-backend
   (testing "fetches hang when no backends"
     (let [be-process (socat "test/fixtures/excerpt.txt")]
