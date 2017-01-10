@@ -195,7 +195,15 @@ repeatedly accepts a connection and sends it to the first chan from
           (cond
             ;; Quit when we get a finished message
             (async/poll! finished-ch)
-            (do (debug "backend stopping") nil)
+            (let [key (first (filter #(= serversocket (.channel %))
+                                     (.keys selector)))]
+              (debug (.channel key))
+              (.cancel key)
+              (recur pending-write downstreams-for-upstreams))
+
+            (empty? (.keys selector))
+            (do (debug "backend stopped")
+                nil)
 
             ;; Zeroth, close the corresponding down/upstream for any up/downstream
             ;; on which we received eof while reading
