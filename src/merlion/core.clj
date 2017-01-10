@@ -7,8 +7,8 @@
             [clojure.string :as str]
             [clojure.test :as test :refer [deftest testing is]]
             [clojure.java.io :as io]
-            [clojure.pprint :refer [pprint]]
             [clojure.set :as set]
+            [taoensso.timbre :as timbre :refer [debug]]
             [clojure.core.async :as async
              :refer [<! <!! go chan >! close! alts!]]))
 
@@ -195,7 +195,7 @@ repeatedly accepts a connection and sends it to the first chan from
           (cond
             ;; Quit when we get a finished message
             (async/poll! finished-ch)
-            nil
+            (do (debug "backend stopping") nil)
 
             ;; Zeroth, close the corresponding down/upstream for any up/downstream
             ;; on which we received eof while reading
@@ -257,11 +257,11 @@ repeatedly accepts a connection and sends it to the first chan from
 
 (defn backend-chan
   [host port listener]
-  (println ["backend chan for " host port])
+  (debug ["backend chan for " host port])
   (let [ch (chan)]
     (future
       (backend listener host port ch)
-      (println ["backend thread quit" host port]))
+      (debug ["backend thread quit" host port]))
     ch))
 
 (defn parse-address [a]
@@ -272,8 +272,8 @@ repeatedly accepts a connection and sends it to the first chan from
   (let [existing (keys backends)
         wanted (keys (:backends config))
         unwanted (set/difference (set existing) (set wanted))]
-;    (println ["unwanted " unwanted])
     (run! close! (map #(:chan (get backends %)) unwanted))
+    (debug ["unwanted " unwanted])
     (reduce (fn [m [n v]]
               (let [a (parse-address (:listen-address v))]
                 (assoc m
@@ -332,8 +332,8 @@ repeatedly accepts a connection and sends it to the first chan from
 (defn healthy-backends [timestamp backends]
   (let [h (filter (partial seen-since? timestamp) (vals backends))]
     (if (seq h)
-      (println ["backends " (map :name h)])
-      (println ["no healthy backends "]))
+      (debug ["backends " (map :name h)])
+      (debug ["no healthy backends "]))
     h))
 
 (defn run-server [prefix]
@@ -353,7 +353,7 @@ repeatedly accepts a connection and sends it to the first chan from
                          val))
 
                 (= ch shutdown)
-                (do (println "quit") (.close listener))
+                (do (debug "quit") (.close listener))
 
                 :else
                 (recur backends listener config)))))
