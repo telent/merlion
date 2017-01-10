@@ -272,8 +272,8 @@ repeatedly accepts a connection and sends it to the first chan from
   (let [existing (keys backends)
         wanted (keys (:backends config))
         unwanted (set/difference (set existing) (set wanted))]
-    (run! close! (map #(:chan (get backends %)) unwanted))
     (debug ["unwanted " unwanted])
+    (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n v]]
               (let [a (parse-address (:listen-address v))]
                 (assoc m
