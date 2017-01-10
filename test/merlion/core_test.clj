@@ -91,7 +91,7 @@
                (tcp-slurp (InetAddress/getLoopbackAddress) port)))))))
 
 
-#_(deftest slow-download
+(deftest slow-download
   (testing "slow file transfer"
     (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
       (with-running-server [prefix port]
@@ -105,10 +105,9 @@
         ))))
 
 
-(deftest interrupting-cow
-  #_
+(deftest quit-server
   (testing "quitting the server does not interrupt transfer"
-    (let [be-process (slow-socat "test/fixtures/excerpt.txt" 10)]
+    (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
       (let [fut
             (with-running-server [prefix port]
               (etcdctl (str "service/" domain-name "/aaa/listen-address")
@@ -121,7 +120,9 @@
                 f))]
         (async/put! @server :quit)
         (is (= (slurp "test/fixtures/excerpt.txt") @fut))
-        )))
+        ))))
+
+(deftest quit-backend
   (testing "deleting the backend does not interrupt transfer"
     (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
       (with-running-server [prefix port]
@@ -147,7 +148,7 @@
                   (.setSoTimeout 1000))]
           (is (thrown? java.net.SocketTimeoutException
                        (slurp (io/reader (.getInputStream s))))))))))
-#_
+
 (deftest no-backend
   (testing "fetches hang when no backends"
     (let [be-process (socat "test/fixtures/excerpt.txt")]
