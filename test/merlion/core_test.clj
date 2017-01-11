@@ -77,15 +77,18 @@
     (.setSoTimeout s 1000)
     (slurp (io/reader (.getInputStream s)))))
 
+(defn add-backend [name port]
+  (etcdctl (str "service/" domain-name "/" name "/listen-address")
+           (str "localhost:" port))
+  (etcdctl (str "service/" domain-name "/" name "/last-seen-at")
+           (.toString (java.time.Instant/now))))
+
 
 (deftest download
   (testing "small file transfer"
     (let [be-process (socat "test/fixtures/excerpt.txt")]
       (with-running-server [prefix port]
-        (etcdctl (str "service/" domain-name "/aaa/listen-address")
-                 (str "localhost:" (:port be-process)))
-        (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
-                 (.toString (java.time.Instant/now)))
+        (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
         (is (= (slurp "test/fixtures/excerpt.txt")
                (tcp-slurp port)))))))
@@ -95,10 +98,7 @@
   (testing "slow file transfer"
     (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
       (with-running-server [prefix port]
-        (etcdctl (str "service/" domain-name "/aaa/listen-address")
-                 (str "localhost:" (:port be-process)))
-        (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
-                 (.toString (java.time.Instant/now)))
+        (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
         (is (= (slurp "test/fixtures/excerpt.txt")
                (tcp-slurp port)))
@@ -110,10 +110,7 @@
     (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
       (let [fut
             (with-running-server [prefix port]
-              (etcdctl (str "service/" domain-name "/aaa/listen-address")
-                       (str "localhost:" (:port be-process)))
-              (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
-                       (.toString (java.time.Instant/now)))
+              (add-backend "aaa" (:port be-process))
               (Thread/sleep 500)
               (let [f (future (tcp-slurp port))]
                 (Thread/sleep 4000)
@@ -126,10 +123,7 @@
   (testing "deleting the backend does not interrupt transfer"
     (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
       (with-running-server [prefix port]
-        (etcdctl (str "service/" domain-name "/aaa/listen-address")
-                 (str "localhost:" (:port be-process)))
-        (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
-                 (.toString (java.time.Instant/now)))
+        (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
         (let [f (future (tcp-slurp port))]
           (Thread/sleep 4000)
@@ -150,10 +144,7 @@
   (testing "deleting a backend makes it stop responding"
     (let [be-process (socat "test/fixtures/excerpt.txt")]
       (with-running-server [prefix port]
-        (etcdctl (str "service/" domain-name "/aaa/listen-address")
-                 (str "localhost:" (:port be-process)))
-        (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
-                 (.toString (java.time.Instant/now)))
+        (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
         (etcd-rm (str "service/" domain-name "/aaa"))
         (Thread/sleep 500)
