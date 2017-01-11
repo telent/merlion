@@ -72,8 +72,8 @@
   (let [c ["/usr/bin/env" "etcdctl" "rm" "--recursive" (str prefix "/" name) ]]
     (shell/stream-to-string (apply shell/proc c) :out)))
 
-(defn tcp-slurp [host port]
-  (let [s (Socket. host port)]
+(defn tcp-slurp [port]
+  (let [s (Socket. (InetAddress/getLoopbackAddress) port)]
     (.setSoTimeout s 1000)
     (slurp (io/reader (.getInputStream s)))))
 
@@ -88,7 +88,7 @@
                  (.toString (java.time.Instant/now)))
         (Thread/sleep 500)
         (is (= (slurp "test/fixtures/excerpt.txt")
-               (tcp-slurp (InetAddress/getLoopbackAddress) port)))))))
+               (tcp-slurp port)))))))
 
 
 (deftest slow-download
@@ -101,7 +101,7 @@
                  (.toString (java.time.Instant/now)))
         (Thread/sleep 500)
         (is (= (slurp "test/fixtures/excerpt.txt")
-               (tcp-slurp (InetAddress/getLoopbackAddress) port)))
+               (tcp-slurp port)))
         ))))
 
 
@@ -115,7 +115,7 @@
               (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
                        (.toString (java.time.Instant/now)))
               (Thread/sleep 500)
-              (let [f (future (tcp-slurp (InetAddress/getLoopbackAddress) port))]
+              (let [f (future (tcp-slurp port))]
                 (Thread/sleep 4000)
                 f))]
         (async/put! @server :quit)
@@ -131,7 +131,7 @@
         (etcdctl (str "service/" domain-name "/aaa/last-seen-at")
                  (.toString (java.time.Instant/now)))
         (Thread/sleep 500)
-        (let [f (future (tcp-slurp (InetAddress/getLoopbackAddress) port))]
+        (let [f (future (tcp-slurp port))]
           (Thread/sleep 4000)
           (etcd-rm (str "service/" domain-name "/aaa"))
           (is (= (slurp "test/fixtures/excerpt.txt") @f)))))))
@@ -143,7 +143,7 @@
         (Thread/sleep 500)
         (is (thrown?
              java.net.SocketTimeoutException
-             (tcp-slurp (InetAddress/getLoopbackAddress) port)))))))
+             (tcp-slurp port)))))))
 
 
 (deftest delete-backend
@@ -159,5 +159,5 @@
         (Thread/sleep 500)
         (is (thrown?
              java.net.SocketTimeoutException
-             (tcp-slurp (InetAddress/getLoopbackAddress) port)))
+             (tcp-slurp port)))
         ))))
