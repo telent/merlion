@@ -8,7 +8,7 @@
             [clojure.test :as test :refer [deftest testing is]]
             [clojure.java.io :as io]
             [clojure.set :as set]
-            [taoensso.timbre :as timbre :refer [debug]]
+            [taoensso.timbre :as log :refer [debug]]
             [clojure.core.async :as async
              :refer [<! <!! go chan >! close! alts!]]))
 
@@ -278,15 +278,15 @@ repeatedly accepts a connection and sends it to the first chan from
 
 (defn update-backends [backends config listener]
   (let [existing (keys backends)
-        wanted (keys (:backends config))
+        wanted (map #(vector % listener) (keys (:backends config)))
         unwanted (set/difference (set existing) (set wanted))]
     (debug ["unwanted " unwanted])
     (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n v]]
               (let [a (parse-address (:listen-address v))]
                 (assoc m
-                       n
-                       (or (get backends n)
+                       [n listener]
+                       (or (get backends [n listener])
                            (assoc v
                                   :name n
                                   :chan
@@ -303,15 +303,15 @@ repeatedly accepts a connection and sends it to the first chan from
   (.. listener socket getLocalPort))
 
 (defn update-listener [listener config]
-  (if-let [req-addr (get-in config [:config :listen-address])]
+  (if-let [req-addr (log/spy (get-in config [:config :listen-address]))]
     (let [req-port (:port (parse-address req-addr))
           old-port (and listener (get-port listener))]
       (if (and listener
                (= old-port req-port))
-        listener
+        (log/spy listener)
         (let [new-l (ServerSocketChannel/open)]
           (and listener (.close listener))
-          (doto new-l
+          (doto (log/spy new-l)
             (.configureBlocking false)
             (.bind (InetSocketAddress. req-port))))))
     nil))

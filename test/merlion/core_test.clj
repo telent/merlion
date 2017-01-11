@@ -152,3 +152,23 @@
              java.net.SocketTimeoutException
              (tcp-slurp port)))
         ))))
+
+(deftest change-listener
+  (testing "the listening port can be changed"
+    (let [be-process (socat "test/fixtures/excerpt.txt")
+          p (:port be-process)]
+      (with-running-server [prefix port]
+        (let [new-port (inc port)]
+          (add-backend "aaa" p)
+          (Thread/sleep 500)
+          (etcdctl (str "/conf/merlion/" domain-name "/listen-address")
+                   (str "localhost:" new-port))
+          (Thread/sleep 500)
+          (is (= (slurp "test/fixtures/excerpt.txt") (tcp-slurp new-port))))))))
+
+
+
+
+
+;; (deftest change-listener-no-interruption
+;;   (testing "changing the listening port does not break existing transfers"))
