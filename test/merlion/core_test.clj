@@ -170,5 +170,17 @@
 
 
 
-;; (deftest change-listener-no-interruption
-;;   (testing "changing the listening port does not break existing transfers"))
+(deftest change-listener-no-interruption
+  (testing "changing the listening port does not break existing transfers"
+    (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)
+          p (:port be-process)]
+      (with-running-server [prefix port]
+        (let [new-port (inc port)]
+          (add-backend "aaa" p)
+          (Thread/sleep 500)
+          (let [f (future (tcp-slurp port))]
+            (Thread/sleep 2000)
+            (etcdctl (str "/conf/merlion/" domain-name "/listen-address")
+                     (str "localhost:" new-port))
+            (Thread/sleep 2000)
+            (is (= (slurp "test/fixtures/excerpt.txt") @f))))))))

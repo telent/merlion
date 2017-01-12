@@ -139,7 +139,7 @@ repeatedly accepts a connection and sends it to the first chan from
         (is (ready-for? (poll-channels [[ssh :read]] 1357) ssh :read))))))
 
 (defn accept-connection [socket]
-  (let [s1 (.accept socket)]
+  (let [s1 (log/spy (.accept socket))]
     (when s1
       (doto s1
         (.configureBlocking false)))))
@@ -193,14 +193,20 @@ repeatedly accepts a connection and sends it to the first chan from
                              ready))
               ]
           (cond
-            ;; Quit when we get a finished message
+            ;; when we get a finish message we take the serversocket out of
+            ;; our selector, so we can finish up serving the requests we already
+            ;; started but will not pick up any new connections
             (async/poll! finished-ch)
             (let [key (first (filter #(= serversocket (.channel %))
                                      (.keys selector)))]
-              (debug (.channel key))
-              (.cancel key)
+              ;; if the serversocket has been closed already (e.g. by another
+              ;; thread when the listen-address is changed) then it will not
+              ;; appear in this selector
+              (if key (.cancel key))
               (recur pending-write downstreams-for-upstreams))
 
+            ;; if we have no serversocket and no open channels, it's
+            ;; byebye time
             (empty? (.keys selector))
             (do (debug "backend stopped")
                 nil)
