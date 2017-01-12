@@ -3,6 +3,7 @@
            [java.net InetSocketAddress]
            [java.nio.channels SocketChannel ServerSocketChannel
             Selector SelectionKey])
+  (:gen-class)
   (:require [merlion.etcd :as etcd]
             [clojure.string :as str]
             [clojure.test :as test :refer [deftest testing is]]
@@ -372,3 +373,7 @@ repeatedly accepts a connection and sends it to the first chan from
                 :else
                 (recur backends listener config)))))
     shutdown))
+
+(defn -main [prefix]
+  (run-server prefix)
+  (while true (Thread/sleep 5000)))
