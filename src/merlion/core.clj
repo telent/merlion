@@ -9,7 +9,7 @@
             [clojure.test :as test :refer [deftest testing is]]
             [clojure.java.io :as io]
             [clojure.set :as set]
-            [taoensso.timbre :as log :refer [debug]]
+            [taoensso.timbre :as log :refer [debug info]]
             [clojure.core.async :as async
              :refer [<! <!! go chan >! close! alts!]]))
 
@@ -140,8 +140,11 @@ repeatedly accepts a connection and sends it to the first chan from
         (is (ready-for? (poll-channels [[ssh :read]] 1357) ssh :read))))))
 
 (defn accept-connection [socket]
-  (let [s1 (log/spy (.accept socket))]
+  (let [s1 (.accept socket)]
     (when s1
+      (when (log/may-log? :debug)
+        ;; no need to getRemoteAddress if we don't have debug logging
+        (log/debug (str "accepted connection from " (.getRemoteAddress s1))))
       (doto s1
         (.configureBlocking false)))))
 
@@ -209,8 +212,7 @@ repeatedly accepts a connection and sends it to the first chan from
             ;; if we have no serversocket and no open channels, it's
             ;; byebye time
             (empty? (.keys selector))
-            (do (debug "backend stopped")
-                nil)
+            nil
 
             ;; Zeroth, close the corresponding down/upstream for any up/downstream
             ;; on which we received eof while reading
@@ -270,13 +272,14 @@ repeatedly accepts a connection and sends it to the first chan from
             ))))))
 
 
+
 (defn backend-chan
   [host port listener]
-  (debug ["backend chan for " host port])
+  (info (str "started backend for " host ":" port))
   (let [ch (chan)]
     (future
       (backend listener host port ch)
-      (debug ["backend thread quit" host port]))
+      (info (str "backend " host  ":" port " quit")))
     ch))
 
 (defn parse-address [a]
@@ -287,7 +290,7 @@ repeatedly accepts a connection and sends it to the first chan from
   (let [existing (keys backends)
         wanted (map #(vector % listener) (keys (:backends config)))
         unwanted (set/difference (set existing) (set wanted))]
-    (debug ["unwanted " unwanted])
+    (log/spy :trace unwanted)
     (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n v]]
               (let [a (parse-address (:listen-address v))]
@@ -310,15 +313,19 @@ repeatedly accepts a connection and sends it to the first chan from
   (.. listener socket getLocalPort))
 
 (defn update-listener [listener config]
-  (if-let [req-addr (log/spy (get-in config [:config :listen-address]))]
+  (when-let [l (keyword (get-in config [:config :log-level]))]
+    (when-not (= l (:level log/*config*))
+      (log/info (str "Setting log level to " l))
+      (log/set-level! (keyword l))))
+  (if-let [req-addr (log/spy :trace (get-in config [:config :listen-address]))]
     (let [req-port (:port (parse-address req-addr))
           old-port (and listener (get-port listener))]
       (if (and listener
                (= old-port req-port))
-        (log/spy listener)
+        (log/spy :trace listener)
         (let [new-l (ServerSocketChannel/open)]
           (and listener (.close listener))
-          (doto (log/spy new-l)
+          (doto (log/spy :trace new-l)
             (.configureBlocking false)
             (.bind (InetSocketAddress. req-port))))))
     nil))
@@ -346,10 +353,7 @@ repeatedly accepts a connection and sends it to the first chan from
 
 (defn healthy-backends [timestamp backends]
   (let [h (filter (partial seen-since? timestamp) (vals backends))]
-    (if (seq h)
-      (debug ["backends " (map :name h)])
-      (debug ["no healthy backends "]))
-    h))
+    (log/spy :trace h)))
 
 (defn run-server [prefix]
   (let [config-ch (combined-config-watcher prefix)
@@ -368,12 +372,13 @@ repeatedly accepts a connection and sends it to the first chan from
                          val))
 
                 (= ch shutdown)
-                (do (debug "quit") (.close listener))
+                (do (info "server quit") (.close listener))
 
                 :else
                 (recur backends listener config)))))
     shutdown))
 
 (defn -main [prefix]
+  (log/set-level! :debug)
   (run-server prefix)
   (while true (Thread/sleep 5000)))
