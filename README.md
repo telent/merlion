@@ -66,7 +66,8 @@ been used for realz
 git clone http://github.com/telent/merlion`
 cd merlion && lein uberjar
 
-# Add Merlion config to etcd
+# Add Merlion config to etcd, using a namespace prefix of your choice
+# (which should be unique to this service)
 etcdctl set /conf/merlion/mysite.example.com/upstream-service-etcd-prefix /services/merlion
 etcdctl set /conf/merlion/mysite.example.com/listen-address 0.0.0.0:8080
 
@@ -87,6 +88,8 @@ curl http://localhost:8080/README.md
 ```
 
 ## Usage
+
+**TODO: add a better definition of the etcd keys expected/required/honoured**
 
 ### Configuration
 
