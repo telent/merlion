@@ -179,3 +179,6 @@
                      (str "localhost:" new-port))
             (Thread/sleep 2000)
             (is (= (slurp "test/fixtures/excerpt.txt") @f))))))))
+
+;;# close frontend when there are no backends?
+;;# server quits unless there is a minimal correct config in etcd
