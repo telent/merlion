@@ -25,7 +25,6 @@
 (defn slow-socat [filename bps]
   (socat-pipe (str "pv -q -L " bps " " filename)))
 
-
 (def port (if-let [p (System/getenv "PORT")]
             (Integer/parseInt p)
             8087))
@@ -165,10 +164,6 @@
                    (str "localhost:" new-port))
           (Thread/sleep 500)
           (is (= (slurp "test/fixtures/excerpt.txt") (tcp-slurp new-port))))))))
-
-
-
-
 
 (deftest change-listener-no-interruption
   (testing "changing the listening port does not break existing transfers"

@@ -19,23 +19,6 @@
 (defn millepoch-time-now []
   (.getTime (java.util.Date.)))
 
-
-(defn server-socket
-  "Opens a ServerSocketChannel listening on the specified TCP `port` then
-repeatedly accepts a connection and sends it to the first chan from
-`backends` to become ready"
-  [port backends]
-  (let [ssc (ServerSocketChannel/open)
-        addr (InetSocketAddress. port)]
-    (.. ssc socket (bind addr))
-    (go (loop []
-          (let [sock (.accept ssc)
-                ports (map #(vector % sock) backends)]
-            (if (first (alts! ports))
-              (recur)
-              ))))))
-
-
 (defn write-pending-buffer [w]
   (let [ch (:to-channel w)
         b (:buffer w)]
