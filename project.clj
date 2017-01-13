@@ -8,9 +8,9 @@
                   :exclusions [org.clojure/clojure]]
                  [aleph "0.4.1"]
                  [cheshire "5.6.3"]
-                 [ring "1.5.0"]
+                 [ring "1.5.1"]
                  [com.taoensso/timbre "4.8.0"]
-                 [org.clojure/core.async "0.2.385"]
+                 [org.clojure/core.async "0.2.395"]
                  [ring/ring-codec "1.0.1"]]
   :plugins [[lein-ancient "0.6.10"]]
   :main ^:skip-aot merlion.core
