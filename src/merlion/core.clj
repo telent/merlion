@@ -240,13 +240,21 @@
             ;; Note this may block in connect(), I haven't decided if that's
             ;; bad or not
             (get ready-channels serversocket)
-            (if-let [sock (accept-connection serversocket)]
-              (let [ds (doto (SocketChannel/open)
-                         (.connect (InetSocketAddress. host port))
-                         (.configureBlocking false))
+            (if-let [sock (log/spy :trace (accept-connection serversocket))]
+              (let [ds (try
+                         (doto (SocketChannel/open)
+                           (.connect (InetSocketAddress. host port))
+                           (debug "connected")
+                           (.configureBlocking false))
+                         (catch java.net.ConnectException e
+                           (do
+                             (log/warn (str "Cannot connect to " host ":" port))
+                             (.close sock)
+                             nil)))
                     mask (poll-ops-mask [:read])]
-                (.register sock selector mask)
-                (.register ds selector mask)
+                (when ds
+                  (.register sock selector mask)
+                  (.register ds selector mask))
                 (recur nil (assoc downstreams-for-upstreams sock ds)))
               (recur nil downstreams-for-upstreams))
 

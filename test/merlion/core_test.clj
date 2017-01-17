@@ -5,16 +5,32 @@
             [clojure.string :as str]
             [clojure.core.async :as async]
             [merlion.core :as core]
+            [taoensso.timbre :as log :refer [debug info trace]]
             [clojure.test :as test :refer [deftest testing is]]
             ))
+
+(log/set-level! :trace)
 
 (defn socat-pipe [command]
   (let [p (shell/proc "/usr/bin/env"
                       "sh" "-c"
-                      (str command " | socat -u -d -d stdin tcp-listen:0"))]
+                      (str command " | socat -u -d -d stdin tcp-listen:0,reuseaddr"))]
     (let [e (io/reader (:err p))]
       (loop [lines (line-seq e)]
         (let [l (first lines)]
+          (trace l)
+          (if-let [m  (re-find #"N listening on AF=2 (.+):([0-9]+)" l)]
+            (assoc p :port (Integer/parseInt (last m)))
+            (recur (rest lines))))))))
+
+(defn socat-pipe-with-port [command port]
+  (let [p (shell/proc "/usr/bin/env"
+                      "sh" "-c"
+                      (str command " | socat -u -d -d stdin tcp-listen:" port ",reuseaddr"))]
+    (let [e (io/reader (:err p))]
+      (loop [lines (line-seq e)]
+        (let [l (first lines)]
+          (trace l)
           (if-let [m  (re-find #"N listening on AF=2 (.+):([0-9]+)" l)]
             (assoc p :port (Integer/parseInt (last m)))
             (recur (rest lines))))))))
@@ -75,6 +91,17 @@
   (let [s (Socket. (InetAddress/getLoopbackAddress) port)]
     (.setSoTimeout s 1000)
     (slurp (io/reader (.getInputStream s)))))
+
+
+(defn add-backend
+  ([name address port]
+   (etcdctl (str "service/" domain-name "/" name "/listen-address")
+            (str address ":" port))
+   (etcdctl (str "service/" domain-name "/" name "/last-seen-at")
+            (.toString (java.time.Instant/now))))
+  ([name port]
+   (add-backend "localhost" port)))
+
 
 (defn add-backend [name port]
   (etcdctl (str "service/" domain-name "/" name "/listen-address")
@@ -179,6 +206,29 @@
                      (str "localhost:" new-port))
             (Thread/sleep 2000)
             (is (= (slurp "test/fixtures/excerpt.txt") @f))))))))
+(deftest error-when-backend-down
+  (testing "a broken upstream does not kill the backend silently"
+    (with-running-server [prefix port]
+      (let [be-process (socat "/dev/null")
+            ;; We need a port number in which there is nothing listening.
+            ;; Unless the machine is ridiculously busy, it should be
+            ;; reasonably OK to start a server, consume the stream
+            ;; before we start the test, and hope the port
+            ;; is not re-allocated
+            _ (tcp-slurp (:port be-process))]
+        (add-backend "aaa" (:port be-process))
+        (Thread/sleep 500)
+        ;; we don't actually have a strong requirement for what happens while
+        ;; the upstream is down
+        (is (= "" (try (tcp-slurp port) (catch Exception e ""))))
+        ;; the important bit is that we didn't kill the backend and not notice
+        ;; it, so let's restart the upstream and check that
+        (let [new-process (socat-pipe-with-port
+                           "cat test/fixtures/excerpt.txt"
+                           (:port be-process))]
+          (Thread/sleep 500)
+          (is (= excerpt-txt (tcp-slurp port))))))))
+
 
 ;;# close frontend when there are no backends?
 ;;# server quits unless there is a minimal correct config in etcd
