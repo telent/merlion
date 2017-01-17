@@ -11,6 +11,8 @@
 
 (log/set-level! :trace)
 
+(def excerpt-txt (slurp "test/fixtures/excerpt.txt"))
+
 (defn socat-pipe [command]
   (let [p (shell/proc "/usr/bin/env"
                       "sh" "-c"
@@ -43,7 +45,7 @@
 
 (def port (if-let [p (System/getenv "PORT")]
             (Integer/parseInt p)
-            8087))
+            8095))
 
 (def domain-name "test.merlion.telent.net")
 (def prefix
@@ -116,7 +118,7 @@
       (with-running-server [prefix port]
         (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
-        (is (= (slurp "test/fixtures/excerpt.txt")
+        (is (= excerpt-txt
                (tcp-slurp port)))))))
 
 
@@ -126,7 +128,7 @@
       (with-running-server [prefix port]
         (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
-        (is (= (slurp "test/fixtures/excerpt.txt")
+        (is (= excerpt-txt
                (tcp-slurp port)))
         ))))
 
@@ -142,7 +144,7 @@
                 (Thread/sleep 4000)
                 f))]
         (async/put! @server :quit)
-        (is (= (slurp "test/fixtures/excerpt.txt") @fut))
+        (is (= excerpt-txt @fut))
         ))))
 
 (deftest quit-backend
@@ -154,7 +156,7 @@
         (let [f (future (tcp-slurp port))]
           (Thread/sleep 4000)
           (etcd-rm (str "service/" domain-name "/aaa"))
-          (is (= (slurp "test/fixtures/excerpt.txt") @f)))))))
+          (is (= excerpt-txt @f)))))))
 
 (deftest no-backend
   (testing "fetches hang when no backends"
@@ -190,7 +192,7 @@
           (etcdctl (str "/conf/merlion/" domain-name "/listen-address")
                    (str "localhost:" new-port))
           (Thread/sleep 500)
-          (is (= (slurp "test/fixtures/excerpt.txt") (tcp-slurp new-port))))))))
+          (is (= excerpt-txt (tcp-slurp new-port))))))))
 
 (deftest change-listener-no-interruption
   (testing "changing the listening port does not break existing transfers"
@@ -205,7 +207,8 @@
             (etcdctl (str "/conf/merlion/" domain-name "/listen-address")
                      (str "localhost:" new-port))
             (Thread/sleep 2000)
-            (is (= (slurp "test/fixtures/excerpt.txt") @f))))))))
+            (is (= excerpt-txt @f))))))))
+
 (deftest error-when-backend-down
   (testing "a broken upstream does not kill the backend silently"
     (with-running-server [prefix port]
