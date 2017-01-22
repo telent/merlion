@@ -143,11 +143,16 @@
       (.register c selector (poll-ops-mask [:write]))
     selector)))
 
+(defn parse-address [a]
+  (let [[address port] (str/split a #":")]
+    {:address address :port (Integer/parseInt port)}))
 
-(defn backend [serversocket host port finished-ch]
+(defn backend [serversocket address finished-ch]
   (let [bytebuffer (ByteBuffer/allocate 8192)
+        {:keys [host port]} (parse-address address)
         selector (new-selector serversocket [:accept])
         write-selector (Selector/open)]
+    (info (str "started backend for " address))
     (loop [pending-write false
            downstreams-for-upstreams {}]
       ;; BACKPRESSURE - we do things in a very specific order.  This is
@@ -260,22 +265,15 @@
 
             :default
             (recur pending-write downstreams-for-upstreams)
-            ))))))
-
-
+            ))))
+    (info (str "backend " address " quit"))))
 
 (defn backend-chan
-  [host port listener]
-  (info (str "started backend for " host ":" port))
+  [address listener]
   (let [ch (chan)]
     (future
-      (backend listener host port ch)
-      (info (str "backend " host  ":" port " quit")))
+      (backend listener address ch))
     ch))
-
-(defn parse-address [a]
-  (let [[address port] (str/split a #":")]
-    {:address address :port (Integer/parseInt port)}))
 
 (defn update-backends [backends config listener]
   (let [existing (keys backends)
@@ -284,19 +282,18 @@
     (log/spy :trace unwanted)
     (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n v]]
-              (let [a (parse-address (:listen-address v))]
-                (assoc m
-                       [n listener]
-                       (or (get backends [n listener])
-                           (assoc v
-                                  :name n
-                                  :chan
-                                  (backend-chan (:address a) (:port a) listener)
-                                  :last-seen-at-ms
-                                  (if-let [ls (:last-seen-at v)]
-                                    (s->millepoch-time ls)
-                                    0)
-                                  )))))
+              (assoc m
+                     [n listener]
+                     (assoc v
+                            :name n
+                            :chan
+                            (or (get-in backends [[n listener] :chan])
+                                (backend-chan (:listen-address v) listener))
+                            :last-seen-at-ms
+                            (if-let [ls (:last-seen-at v)]
+                              (s->millepoch-time ls)
+                              0)
+                            )))
             {}
             (:backends config))))
 
