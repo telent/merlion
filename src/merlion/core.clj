@@ -144,10 +144,10 @@
     selector)))
 
 (defn parse-address [a]
-  (let [[address port] (str/split a #":")]
-    {:address address :port (Integer/parseInt port)}))
+  (let [[host port] (str/split a #":")]
+    {:host host :port (Integer/parseInt port)}))
 
-(defn backend [serversocket address finished-ch]
+(defn backend [serversocket address finished-ch on-exit]
   (let [bytebuffer (ByteBuffer/allocate 8192)
         {:keys [host port]} (parse-address address)
         selector (new-selector serversocket [:accept])
@@ -252,48 +252,49 @@
                            (debug "connected")
                            (.configureBlocking false))
                          (catch java.net.ConnectException e
-                           (do
-                             (log/warn (str "Cannot connect to " host ":" port))
+                           (let [m (str "Cannot connect to " host ":" port)]
+                             (log/warn m)
                              (.close sock)
+                             (on-exit m)
                              nil)))
                     mask (poll-ops-mask [:read])]
                 (when ds
                   (.register sock selector mask)
-                  (.register ds selector mask))
-                (recur nil (assoc downstreams-for-upstreams sock ds)))
+                  (.register ds selector mask)
+                  (recur nil (assoc downstreams-for-upstreams sock ds))))
               (recur nil downstreams-for-upstreams))
 
             :default
-            (recur pending-write downstreams-for-upstreams)
-            ))))
-    (info (str "backend " address " quit"))))
+            (recur pending-write downstreams-for-upstreams)))))))
 
 (defn backend-chan
-  [address listener]
+  [address listener on-exit]
   (let [ch (chan)]
     (future
-      (backend listener address ch))
+      (backend listener address ch on-exit))
     ch))
 
-(defn update-backends [backends config listener]
+(defn update-backends [backends config listener exit-chan]
   (let [existing (keys backends)
         wanted (map #(vector % listener) (keys (:backends config)))
         unwanted (set/difference (set existing) (set wanted))]
     (log/spy :trace unwanted)
     (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n v]]
-              (assoc m
-                     [n listener]
-                     (assoc v
-                            :name n
-                            :chan
-                            (or (get-in backends [[n listener] :chan])
-                                (backend-chan (:listen-address v) listener))
-                            :last-seen-at-ms
-                            (if-let [ls (:last-seen-at v)]
-                              (s->millepoch-time ls)
-                              0)
-                            )))
+              (let [c (or (get-in backends [[n listener] :chan])
+                          (backend-chan (:listen-address v)
+                                        listener
+                                        #(async/put! exit-chan [[n listener] %])))]
+                (assoc m
+                       [n listener]
+                       (assoc v
+                              :name n
+                              :chan c
+                              :last-seen-at-ms
+                              (if-let [ls (:last-seen-at v)]
+                                (s->millepoch-time ls)
+                                0)
+                              ))))
             {}
             (:backends config))))
 
@@ -345,6 +346,7 @@
 
 (defn run-server [prefix]
   (let [config-ch (combined-config-watcher prefix)
+        backend-exits (chan)
         shutdown (chan)]
     (go
       (loop [backends {}
@@ -352,12 +354,22 @@
              config {}]
         (let [timestamp (- (millepoch-time-now) (* 3600 1000))
               healthy (healthy-backends timestamp backends)
-              [val ch] (alts! [config-ch shutdown])]
+              [val ch] (alts! [config-ch shutdown backend-exits])]
           (cond (= ch config-ch)
                 (let [l (update-listener listener val)]
-                  (recur (update-backends backends val l)
+                  (recur (update-backends backends val l backend-exits)
                          l
                          val))
+
+                (= ch backend-exits)
+                (let [[backend-key reason] val]
+                  (log/info (str "backend " (first backend-key) " quit: " reason))
+                  (recur (update-in backends [backend-key]
+                                    (fn [b]
+                                      (assoc b :exited (millepoch-time-now)
+                                             :exit-reason reason)))
+                         listener
+                         config))
 
                 (= ch shutdown)
                 (do (info "server quit") (.close listener))
