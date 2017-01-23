@@ -38,7 +38,7 @@
 (def get-http
   (comp slurp :body deref #(http/get % {:throw-exceptions false})))
 (def put-http
-  (comp slurp :body deref #(http/get % {:throw-exceptions false})))
+  (comp slurp :body deref #(http/put %1 (merge %2 {:throw-exceptions false}))))
 (def etcd-endpoint "http://localhost:2379/v2/keys")
 
 (defn get-prefix [prefix]
@@ -58,9 +58,17 @@
 
 
 (defn put-value [path value]
-  (let [nname (str/join "/" (map name path))]
-    (json/decode
-     (put-http (str etcd-endpoint "/"  nname)
-               {:headers {:content-type "application/x-www-form-urlencoded"}
+  (json/decode
+   (put-http (str etcd-endpoint path)
+             {:headers {:content-type "application/x-www-form-urlencoded"}
 
-                :body (ring.util.codec/form-encode {:value value})}))))
+              :body (ring.util.codec/form-encode {:value value})})))
+
+(defn put-map [path value]
+  (run!
+   (fn [[k v]]
+     (let [k (str path "/" (if (keyword? k) (name k) k))]
+       (if (map? v)
+         (put-map k v)
+         (put-value k v))))
+   value))

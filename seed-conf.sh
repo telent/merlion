@@ -14,6 +14,7 @@ fi
 conf $prefix/upstream-freshness 30
 
 conf $prefix/upstream-service-etcd-prefix /service/$site
+conf $prefix/state-etcd-prefix /state/merlion/$site
 conf $prefix/log-format edn
 conf $prefix/listen-address localhost:8088
 

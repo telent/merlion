@@ -344,6 +344,15 @@
   (let [h (filter (partial seen-since? timestamp) (vals backends))]
     (log/spy :trace h)))
 
+(defn public-backend-state [backends]
+  (reduce (fn [m [[n l] v]]
+            (assoc m
+                   n
+                   (select-keys v [:last-seen-at-ms :exit-reason :exited])))
+          {}
+          backends))
+
+
 (defn run-server [prefix]
   (let [config-ch (combined-config-watcher prefix)
         backend-exits (chan)
@@ -355,6 +364,9 @@
         (let [timestamp (- (millepoch-time-now) (* 3600 1000))
               healthy (healthy-backends timestamp backends)
               [val ch] (alts! [config-ch shutdown backend-exits])]
+          (etcd/put-map
+           (str (:state-etcd-prefix (:config config)) "/backends")
+           (public-backend-state backends))
           (cond (= ch config-ch)
                 (let [l (update-listener listener val)]
                   (recur (update-backends backends val l backend-exits)
@@ -370,7 +382,6 @@
                                              :exit-reason reason)))
                          listener
                          config))
-
                 (= ch shutdown)
                 (do (info "server quit") (.close listener))
 
