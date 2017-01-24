@@ -337,13 +337,6 @@
           (recur new-bp backend-watcher))))
     out-ch))
 
-(defn seen-since? [timestamp backend]
-  (> (:last-seen-at-ms backend) timestamp))
-
-(defn healthy-backends [timestamp backends]
-  (let [h (filter (partial seen-since? timestamp) (vals backends))]
-    (log/spy :trace h)))
-
 (defn public-backend-state [backends]
   (reduce (fn [m [[n l] v]]
             (assoc m
@@ -361,11 +354,10 @@
       (loop [backends {}
              listener nil
              config {}]
-        (etcd/put-map
-         (str (:state-etcd-prefix (:config config)) "/backends")
-         (public-backend-state backends))
+        (if-let [state-prefix (:state-etcd-prefix (:config config))]
+          (etcd/put-map (str state-prefix "/backends")
+                        (public-backend-state backends)))
         (let [timestamp (- (millepoch-time-now) (* 3600 1000))
-              healthy (healthy-backends timestamp backends)
               [val ch] (alts! [config-ch shutdown backend-exits])]
           (cond (= ch config-ch)
                 (let [l (update-listener listener val)]
