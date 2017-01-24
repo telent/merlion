@@ -222,19 +222,34 @@
         (add-backend "aaa" (:port be-process))
         (Thread/sleep 500)
         ;; we don't actually have a strong requirement for what happens while
-        ;; the upstream is down
+        ;; the upstream is down, but let's at least check it's down
         (is (= "" (try (tcp-slurp port) (catch Exception e ""))))
         ;; but whatever it was, the server should carry on responding in the same
         ;; way when we restart the upstream and check that
-
-        ;; XXX the test we *really* want is "the backend is dropped from the
-        ;; set of active backends until it is refreshed" but we haven't written
-        ;; that yet
         (let [new-process (socat-pipe-with-port
                            "cat test/fixtures/excerpt.txt"
                            (:port be-process))]
           (Thread/sleep 500)
           (is (= "" (try (tcp-slurp port) (catch Exception e "")))))))))
+
+(deftest etcd-state-when-backend-down
+  (testing "we can see in etcd when a backend minder exits"
+    (with-running-server [prefix port]
+      (let [be-process (socat "/dev/null")
+            _ (tcp-slurp (:port be-process))]
+        (etcdctl (str "/conf/merlion/" domain-name "/state-etcd-prefix")
+                 (str prefix "/state"))
+        (add-backend "aaa" (:port be-process))
+        (Thread/sleep 500)
+        (is (= "" (try (tcp-slurp port) (catch Exception e ""))))
+        (Thread/sleep 50)               ;much discomfort
+        (let [be-state
+              (->
+               (merlion.etcd/get-prefix  (str prefix "/state"))
+               :backends :aaa)
+              ls (Long/parseLong (:last-seen-at-ms be-state))
+              xt (Long/parseLong (:exited be-state))]
+          (is (> xt ls)))))))
 
 
 ;;# close frontend when there are no backends?

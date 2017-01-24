@@ -361,12 +361,12 @@
       (loop [backends {}
              listener nil
              config {}]
+        (etcd/put-map
+         (str (:state-etcd-prefix (:config config)) "/backends")
+         (public-backend-state backends))
         (let [timestamp (- (millepoch-time-now) (* 3600 1000))
               healthy (healthy-backends timestamp backends)
               [val ch] (alts! [config-ch shutdown backend-exits])]
-          (etcd/put-map
-           (str (:state-etcd-prefix (:config config)) "/backends")
-           (public-backend-state backends))
           (cond (= ch config-ch)
                 (let [l (update-listener listener val)]
                   (recur (update-backends backends val l backend-exits)
