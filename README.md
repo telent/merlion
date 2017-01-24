@@ -99,6 +99,11 @@ etcd keyspace prefix for configuration for this instance/cluster
 itself.  Under this prefix, merlion expects the following keys
 
 * `upstream-service-etcd-prefix` e.g. `/service/sinatra/helloworld/`
+* `state-etcd-prefix` - a key space under which merlion maintains some
+  state attributes of the service and its backends.  An external
+  process watching this prefix would be able to
+  tell if a backend had become unreachable, for example.  Optional,
+  no default
 * `listen-address` (optional, defaults to *:8080)
 * `upstream-freshness` - how long can a backend go without "checking
   in" before we mark it unavailable.  Specifically, the timeout in
@@ -113,7 +118,14 @@ itself.  Under this prefix, merlion expects the following keys
 
 ### Registering upstreams
 
-Merlion will (I certainy hope) do nothing interesting until you have some backends registered.  It expects each of the services it is proxying to have registered their details in etcd at the prefix specified by `upstream-service-etc-prefix`.  For example, if the prefix is  `/service/sinatra/helloworld/` you might have any/all of `/service/sinatra/helloworld/21345`, `/service/sinatra/helloworld/i-346ad1`, `/service/sinatra/helloworld/127_0_0_1/`
+Merlion should do nothing interesting until you have some backends
+registered.  It expects each of the services it is proxying to have
+registered their details in etcd at the prefix specified by
+`upstream-service-etc-prefix`.  For example, if the prefix is
+`/service/sinatra/helloworld/` you might have any/all of
+`/service/sinatra/helloworld/21345`,
+`/service/sinatra/helloworld/i-346ad1`,
+`/service/sinatra/helloworld/127_0_0_1/`
 
 Each etcd directory node within the configured prefix is added as a
 valid backend service if the following conditions are met:
