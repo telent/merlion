@@ -5,16 +5,15 @@
             Selector SelectionKey])
   (:gen-class)
   (:require [merlion.etcd :as etcd]
+            [merlion.config :as conf]
             [clojure.string :as str]
             [clojure.test :as test :refer [deftest testing is]]
             [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.spec :as s]
             [taoensso.timbre :as log :refer [debug info]]
             [clojure.core.async :as async
              :refer [<! <!! go chan >! close! alts!]]))
-
-(defn s->millepoch-time [s]
-  (.getTimeInMillis (clojure.instant/read-instant-calendar s)))
 
 (defn millepoch-time-now []
   (.getTime (java.util.Date.)))
@@ -141,15 +140,11 @@
     (let [c (:to-channel w)]
       (run! #(or (= c (.channel %)) (.cancel %)) (.keys selector))
       (.register c selector (poll-ops-mask [:write]))
-    selector)))
-
-(defn parse-address [a]
-  (let [[host port] (str/split a #":")]
-    {:host host :port (Integer/parseInt port)}))
+      selector)))
 
 (defn backend [serversocket address finished-ch on-exit]
   (let [bytebuffer (ByteBuffer/allocate 8192)
-        {:keys [host port]} (parse-address address)
+        {:keys [::conf/host ::conf/port]} address
         selector (new-selector serversocket [:accept])
         write-selector (Selector/open)]
     (info (str "started backend for " address))
@@ -182,8 +177,8 @@
               (first (filter (fn [s]
                                (and (poll-op? (:ops s) [:read])
                                     (get upstreams (:channel s))))
-                             ready))
-              ]
+                             ready))]
+
           (cond
             ;; when we get a finish message we take the serversocket out of
             ;; our selector, so we can finish up serving the requests we already
@@ -274,27 +269,77 @@
       (backend listener address ch on-exit))
     ch))
 
+;; a few simple rules
+;; there should be backend state for every backend named in the spec
+;; it may be disabled because
+;; - disabled in spec
+;; - no recent last-seen
+;; - last-seen before last network fail
+;; if it is disabled then we should stop its thread and forget its chan
+;; if it is not disabled and it has no chan, make one
+
+(s/def ::exited-at ::conf/timestamp)
+
+;; (s/def ::chan async/chan?) no such fn
+
+(s/def ::backend-state
+  (s/keys :req-un [::conf/last-seen-at
+                   ::conf/listen-address]
+          :opt-un [::exited-at
+                   ::exit-reason
+                   ::chan
+                   ]))
+
+(s/conform ::backend-state
+           {:last-seen-at "2017-01-26T16:42:46+00:00"
+            :listen-address "etwert:1000"
+            :chan true})
+(s/conform ::conf/last-seen-at nil)
+
+(defn backend-unavailable? [margin backend-state]
+  (or (empty? backend-state)
+      (if-let [last-seen (:last-seen-at (log/spy backend-state))]
+        (or (if-let [ex (:exited-at backend-state)] (> ex last-seen))
+            (> (- (millepoch-time-now) last-seen) (* 1000 margin)))
+        true)))
+
+(defn update-backend-state-from-spec [margin exit-chan listener backend spec]
+  {:pre [(s/valid? ::conf/backend spec)]
+   :post [(s/valid? ::backend-state %)]}
+  (let [last-seen (:last-seen-at spec)
+        be (assoc backend
+                  :last-seen-at last-seen
+                  :listen-address (:listen-address spec))
+        unavailable? (log/spy (backend-unavailable? margin (log/spy be)))
+        disabled? (or (:disabled spec) unavailable?)]
+    (if-let [c (and disabled? (:chan backend))]
+      (async/put! c :quit))
+    (assoc be
+           :unavailable unavailable?
+           :chan (if disabled?
+                   nil
+                   (or (:chan backend)
+                       (backend-chan
+                        (:listen-address spec)
+                        listener
+                        #(async/put! exit-chan [[(:name spec) listener] %])))))))
+
 (defn update-backends [backends config listener exit-chan]
+  (log/spy config)
   (let [existing (keys backends)
         wanted (map #(vector % listener) (keys (:backends config)))
+        margin (:upstream-freshness (:config config))
         unwanted (set/difference (set existing) (set wanted))]
     (log/spy :trace unwanted)
     (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
-    (reduce (fn [m [n v]]
-              (let [c (or (get-in backends [[n listener] :chan])
-                          (backend-chan (:listen-address v)
-                                        listener
-                                        #(async/put! exit-chan [[n listener] %])))]
-                (assoc m
-                       [n listener]
-                       (assoc v
-                              :name n
-                              :chan c
-                              :last-seen-at-ms
-                              (if-let [ls (:last-seen-at v)]
-                                (s->millepoch-time ls)
-                                0)
-                              ))))
+    (reduce (fn [m [n spec]]
+              (let [state (get backends [n listener] {})]
+                (assoc
+                 m
+                 [n listener]
+                 (update-backend-state-from-spec margin exit-chan
+                                                 listener state
+                                                 (assoc spec :name n)))))
             {}
             (:backends config))))
 
@@ -302,22 +347,27 @@
   (.. listener socket getLocalPort))
 
 (defn update-listener [listener config]
-  (when-let [l (keyword (get-in config [:config :log-level]))]
+  (when-let [l (get-in config [:config :log-level])]
     (when-not (= l (:level log/*config*))
       (log/info (str "Setting log level to " l))
-      (log/set-level! (keyword l))))
+      (log/set-level! l)))
   (if-let [req-addr (log/spy :trace (get-in config [:config :listen-address]))]
-    (let [req-port (:port (parse-address req-addr))
+    (let [req-port (::conf/port req-addr)
           old-port (and listener (get-port listener))]
       (if (and listener
                (= old-port req-port))
         (log/spy :trace listener)
         (let [new-l (ServerSocketChannel/open)]
           (and listener (.close listener))
-          (doto (log/spy :trace new-l)
+          (doto  new-l
             (.configureBlocking false)
             (.bind (InetSocketAddress. req-port))))))
     nil))
+
+(defn conform-or-warn [spec data]
+  (if (s/valid? spec data)
+    (s/conform spec data)
+    (log/warn (pr-str (s/explain-data spec data)))))
 
 (defn combined-config-watcher [prefix]
   (let [config-watcher (etcd/watch-prefix prefix)
@@ -331,8 +381,16 @@
               (if (and backend-watcher (= new-bp backend-prefix))
                 backend-watcher
                 (and new-bp (etcd/watch-prefix new-bp)))]
-          (>! out-ch {:config config
-                      :backends (if new-bp (etcd/get-prefix new-bp) {})})
+          (>! out-ch
+              {:config
+               (merge {:upstream-freshness (* 1000 3600)}
+                      (log/spy (conform-or-warn ::conf/config config)))
+               :backends
+               (if new-bp
+                 (conform-or-warn
+                  (s/map-of keyword? ::conf/backend)
+                  (etcd/get-prefix new-bp))
+                 {})})
           (alts! (remove nil? [config-watcher backend-watcher]))
           (recur new-bp backend-watcher))))
     out-ch))
@@ -341,10 +399,26 @@
   (reduce (fn [m [[n l] v]]
             (assoc m
                    n
-                   (select-keys v [:last-seen-at-ms :exit-reason :exited])))
+                   (select-keys v [:last-seen-at
+                                   :disabled
+                                   :unavailable
+                                   :exit-reason
+                                   :exited-at])))
           {}
           backends))
 
+(defn most-stale-backend-timestamp [backends]
+  (reduce min (millepoch-time-now)
+          (map :last-seen-at
+               (filter (complement :disabled) (vals backends)))))
+
+(defn time-to-next-expire [config backend-states]
+  (and (not (empty? config)) (not (empty? backend-states))
+       (let [freshness (* 1000 (:upstream-freshness (:config config)))
+             interval
+             (- (+ (most-stale-backend-timestamp backend-states) freshness)
+                (millepoch-time-now))]
+         (if (> interval 0) interval nil))))
 
 (defn run-server [prefix]
   (let [config-ch (combined-config-watcher prefix)
@@ -355,12 +429,15 @@
              listener nil
              config {}]
         (if-let [state-prefix (:state-etcd-prefix (:config config))]
-          (etcd/put-map (str state-prefix "/backends")
-                        (public-backend-state backends)))
-        (let [timestamp (- (millepoch-time-now) (* 3600 1000))
-              [val ch] (alts! [config-ch shutdown backend-exits])]
+          (if-not (empty? backends)
+            (etcd/put-map (str state-prefix "/backends")
+                          (log/spy (public-backend-state (log/spy backends))))))
+        (let [next-check-interval (log/spy (time-to-next-expire config backends))
+              timeout-ch (async/timeout (or next-check-interval (* 1000 1000)))
+              [val ch] (alts! [config-ch shutdown backend-exits timeout-ch])]
           (cond (= ch config-ch)
                 (let [l (update-listener listener val)]
+                  (log/debug (pr-str "new config " val))
                   (recur (update-backends backends val l backend-exits)
                          l
                          val))
@@ -370,10 +447,18 @@
                   (log/info (str "backend " (first backend-key) " quit: " reason))
                   (recur (update-in backends [backend-key]
                                     (fn [b]
-                                      (assoc b :exited (millepoch-time-now)
+                                      (assoc b :exited-at (millepoch-time-now)
                                              :exit-reason reason)))
                          listener
                          config))
+
+                (= ch timeout-ch)
+                (do
+                  (log/trace "expire")
+                  (recur (update-backends backends config listener backend-exits)
+                         listener
+                         config))
+
                 (= ch shutdown)
                 (do (info "server quit") (.close listener))
 

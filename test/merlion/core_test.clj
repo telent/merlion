@@ -247,8 +247,8 @@
               (->
                (merlion.etcd/get-prefix  (str prefix "/state"))
                :backends :aaa)
-              ls (Long/parseLong (:last-seen-at-ms be-state))
-              xt (Long/parseLong (:exited be-state))]
+              ls (Long/parseLong (:last-seen-at be-state))
+              xt (Long/parseLong (:exited-at be-state))]
           (is (> xt ls)))))))
 
 
