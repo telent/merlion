@@ -13,17 +13,28 @@
 
 (def excerpt-txt (slurp "test/fixtures/excerpt.txt"))
 
+(defn read-process-out-for-port [p]
+  (let [e (io/reader (:err p))]
+    (loop [lines (line-seq e)]
+      (let [l (first lines)]
+        (trace l)
+        (if-let [m  (re-find #"N listening on AF=2 (.+):([0-9]+)" l)]
+          (assoc p :port (Integer/parseInt (last m)))
+          (recur (rest lines)))))))
+
 (defn socat-pipe [command]
   (let [p (shell/proc "/usr/bin/env"
                       "sh" "-c"
                       (str command " | socat -u -d -d stdin tcp-listen:0,reuseaddr"))]
-    (let [e (io/reader (:err p))]
-      (loop [lines (line-seq e)]
-        (let [l (first lines)]
-          (trace l)
-          (if-let [m  (re-find #"N listening on AF=2 (.+):([0-9]+)" l)]
-            (assoc p :port (Integer/parseInt (last m)))
-            (recur (rest lines))))))))
+    (read-process-out-for-port p)))
+
+
+(defn socat-file-server [filename]
+  (let [p (shell/proc "/usr/bin/env"
+                      "sh" "-c"
+                      (str "socat  -d -d tcp-listen:0,reuseaddr,fork file:" filename))]
+    (read-process-out-for-port p)))
+
 
 (defn socat-pipe-with-port [command port]
   (let [p (shell/proc "/usr/bin/env"
@@ -251,6 +262,27 @@
               xt (Long/parseLong (:exited-at be-state))]
           (is (> xt ls)))))))
 
+(deftest excommunicate-stale-backend
+  (testing "we don't send requests to backends that haven't checked in recently"
+    (with-running-server [prefix port]
+      (let [be1 (socat-file-server "test/fixtures/excerpt.txt")
+            be2 (socat-file-server "test/fixtures/excerpt2.txt")
+            t1 excerpt-txt
+            t2 (slurp "test/fixtures/excerpt2.txt")
+            config-prefix (str "/conf/merlion/" domain-name "/")]
+        (etcdctl (str config-prefix "state-etcd-prefix")
+                 (str prefix "/state"))
+        (etcdctl (str config-prefix "upstream-freshness") "5")
+        (add-backend "aaa" (:port be1))
+        (add-backend "bbb" (:port be2))
+        (Thread/sleep 3000)
+        (add-backend "bbb" (:port be2))
+        (Thread/sleep 3000)
+        ;;; bbb should now be the only backend remaining.
+        ;;; of course, it's *possible* this test could succeed by accident
+        (dotimes [i 10]
+          (is (= t2 (tcp-slurp port)))
+          (Thread/sleep 100))))))
 
 ;;# close frontend when there are no backends?
 ;;# server quits unless there is a minimal correct config in etcd
