@@ -1,10 +1,11 @@
 # Merlion
 
-A TCP proxy configured via "etcd":https://github.com/coreos/etcd , following the
-["autopilot"]
+A TCP proxy configured via ["etcd"] (https://github.com/coreos/etcd) ,
+following the ["autopilot"]
 (https://www.joyent.com/blog/app-centric-micro-orchestration) pattern
-described by Casey Bisson at Joyent.  Reconfigures itself
-dynamically when backends change.
+described by Casey Bisson at Joyent.  Reconfigures itself dynamically
+when backends change, to make zero-downtime code deployments simpler.
+
 
 ## Problem description
 
@@ -35,8 +36,8 @@ three options generally considered:
   simultaneously, and the complexity of orchestrating the load
   balancer changes.
   
-Merlion is my offering towards making option 3 manageable.  It
-provides a simple TCP load balancer which is dynamically
+Merlion is my offering towards making option 3 manageable/automatable.
+It provides a simple TCP load balancer which is dynamically
 reconfigurable using etcd, allowing backends to be added or removed
 during a deploy/rollback without the need to edit any files or restart
 any load balancer processes.
@@ -56,8 +57,6 @@ been used for realz
 
 * (On my machine, at least) listeners bind to the ipv6 wildcard
   address no matter what address you tell it to use
-
-* health checks currently unimplemented
 
 ## Quick start/demonstration
 
@@ -89,14 +88,17 @@ curl http://localhost:8080/README.md
 
 ## Usage
 
-**TODO: add a better definition of the etcd keys expected/required/honoured**
-
 ### Configuration
 
 Merlion uses the etcd store both for its own configuration and for
 finding the details of the backend services it is proxying.  Choose an
 etcd keyspace prefix for configuration for this instance/cluster
 itself.  Under this prefix, merlion expects the following keys
+
+[ The list in this README is indicative, not definitive: for the definitive list,
+see the "spec" for `:merlion.config/config` as described in
+[src/merlion/config.clj]
+(https://github.com/telent/merlion/blob/master/src/merlion/config.clj) ]
 
 * `upstream-service-etcd-prefix` e.g. `/service/sinatra/helloworld/`
 * `state-etcd-prefix` - a key space under which merlion maintains some
@@ -135,6 +137,13 @@ valid backend service if the following conditions are met:
 * the key `last-seen-at` is a valid ISO8166 datetime and the interval between `last-seen-at` and the time now is less than `upstream-freshness` seconds
 
 * the key `disabled` is not present
+
+[ Again, these keys are indicative not definitive: for the definitive list,
+see the "spec" for `:merlion.config/backend` as described in
+[src/merlion/config.clj]
+(https://github.com/telent/merlion/blob/master/src/merlion/config.clj) ]
+
+
 
 # Design principles, priorities
 
