@@ -75,3 +75,9 @@
                    ::listen-address
                    ::log-level
                    ::upstream-freshness]))
+
+(defn with-defaults [config]
+  (merge
+   {:upstream-freshness (* 1000 300)
+    :listen-address "0.0.0.0:8080"}
+   config))

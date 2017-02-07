@@ -382,9 +382,7 @@
                 backend-watcher
                 (and new-bp (etcd/watch-prefix new-bp)))]
           (>! out-ch
-              {:config
-               (merge {:upstream-freshness (* 1000 3600)}
-                      (log/spy (conform-or-warn ::conf/config config)))
+              {:config (conform-or-warn ::conf/config (conf/with-defaults config))
                :backends
                (if new-bp
                  (conform-or-warn
