@@ -418,10 +418,10 @@
                 (millepoch-time-now))]
          (if (> interval 0) interval nil))))
 
-(defn run-server [prefix]
+(defn run-server [prefix quit-chan]
   (let [config-ch (combined-config-watcher prefix)
         backend-exits (chan)
-        shutdown (chan)]
+        shutdown quit-chan]
     (go
       (loop [backends {}
              listener nil
@@ -436,9 +436,14 @@
           (cond (= ch config-ch)
                 (let [l (update-listener listener val)]
                   (log/debug (pr-str "new config " val))
-                  (recur (update-backends backends val l backend-exits)
-                         l
-                         val))
+                  (if (:config val)
+                    (recur (update-backends backends val l backend-exits)
+                           l
+                           val)
+                    (log/fatal
+                     (str "no valid configuration found at etcd prefix "
+                          (pr-str prefix)))
+                    ))
 
                 (= ch backend-exits)
                 (let [[backend-key reason] val]
@@ -461,10 +466,12 @@
                 (do (info "server quit") (.close listener))
 
                 :else
-                (recur backends listener config)))))
-    shutdown))
+                (recur backends listener config))))
+      true)))
 
 (defn -main [prefix]
   (log/set-level! :debug)
-  (run-server prefix)
-  (while true (Thread/sleep 5000)))
+  (let [c (chan)]
+    ;; sending stuff to c will cause exit.  ideally we would have a
+    ;; signal handler or something that does that
+    (<!! (run-server prefix c))))

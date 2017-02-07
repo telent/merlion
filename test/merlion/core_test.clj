@@ -77,17 +77,19 @@
            (str "localhost:" port)]]]
     (shell/stream-to-string (apply shell/proc c) :out)))
 
-(def server (atom nil))
 
 (defn call-with-running-server [f]
   (seed-etcd)
-  (reset! server (core/run-server (str prefix "/conf/merlion/" domain-name)))
-  (try
-    (f)
-    (finally
-      (async/put! @server :quit)
-      (let [c ["etcdctl" "rm" "--recursive" prefix]]
-        (shell/stream-to-string (apply shell/proc c) :out)))))
+  (let [shutdown (async/chan)
+        server (core/run-server (str prefix "/conf/merlion/" domain-name)
+                                shutdown)]
+    (try
+      (f)
+      (finally
+        (async/put! shutdown :quit)
+        (log/spy (async/<!! server))
+        (let [c ["etcdctl" "rm" "--recursive" prefix]]
+          (shell/stream-to-string (apply shell/proc c) :out))))))
 
 (defmacro with-running-server [[pre prt] & body]
   `(call-with-running-server (fn [] (let [~pre prefix ~prt port]  ~@body))))
@@ -146,17 +148,16 @@
 
 (deftest quit-server
   (testing "quitting the server does not interrupt transfer"
-    (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)]
-      (let [fut
-            (with-running-server [prefix port]
-              (add-backend "aaa" (:port be-process))
-              (Thread/sleep 500)
-              (let [f (future (tcp-slurp port))]
-                (Thread/sleep 4000)
-                f))]
-        (async/put! @server :quit)
-        (is (= excerpt-txt @fut))
-        ))))
+    (seed-etcd)
+    (let [be-process (slow-socat "test/fixtures/excerpt.txt" 100)
+          shutdown (async/chan)
+          server (core/run-server (str prefix "/conf/merlion/" domain-name)
+                                  shutdown)]
+      (future (Thread/sleep 4000) (async/put! shutdown :quit))
+      (add-backend "aaa" (:port be-process))
+      (Thread/sleep 500)
+      (is (= excerpt-txt (tcp-slurp port)))
+      (log/spy (async/<!! server)))))
 
 (deftest quit-backend
   (testing "deleting the backend does not interrupt transfer"
@@ -284,5 +285,17 @@
           (is (= t2 (tcp-slurp port)))
           (Thread/sleep 100))))))
 
+(deftest exit-when-no-config
+  (testing "server quits unless there is a minimal correct config in etcd"
+    (doseq
+        [c [["etcdctl" "rm" "--recursive" prefix]
+            ]]
+      (shell/stream-to-string (apply shell/proc c) :out))
+    (let [c (async/chan)
+          tm (async/timeout 1000)
+          s (core/run-server (str prefix "/conf/merlion/" domain-name) c)]
+      (is (= (second (async/alts!! [s tm])) s)))))
+
+
 ;;# close frontend when there are no backends?
-;;# server quits unless there is a minimal correct config in etcd
+;;#
