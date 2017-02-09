@@ -1,7 +1,7 @@
 (ns merlion.core
   (:import [java.nio Buffer ByteBuffer]
            [java.net InetSocketAddress]
-           [java.nio.channels SocketChannel ServerSocketChannel
+           [java.nio.channels SocketChannel ServerSocketChannel Channel
             Selector SelectionKey])
   (:gen-class)
   (:require [merlion.etcd :as etcd]
@@ -19,8 +19,8 @@
   (.getTime (java.util.Date.)))
 
 (defn write-pending-buffer [w]
-  (let [ch (:to-channel w)
-        b (:buffer w)]
+  (let [ch ^SocketChannel (:to-channel w)
+        b ^ByteBuffer (:buffer w)]
     (if (:eof? w)
       w
       (do
@@ -29,7 +29,9 @@
           w
           (do (.clear b) nil))))))
 
-(defn read-pending-buffer [buffer from-channel to-channel]
+(defn read-pending-buffer [^ByteBuffer buffer
+                           ^SocketChannel from-channel
+                           to-channel]
   (let [b buffer
         c (.read from-channel b)]
     (cond
@@ -75,10 +77,10 @@
               :c2
               :write)))))
 
-(defn poll-selector [bo timeout]
-  (if-not (zero? (.select bo timeout))
+(defn poll-selector [^Selector bo ^long timeout]
+  (if-not (zero? ^int (.select bo timeout))
     (let [ready (.selectedKeys bo)
-          v (doall (map (fn [k]
+          v (doall (map (fn [^SelectionKey k]
                           {:channel (.channel k)
                            :ops (.readyOps k)})
                         ready))]
@@ -86,11 +88,11 @@
       v)))
 
 (defn poll-channels [poll-set timeout]
-  (with-open [bo (reduce (fn [s [channel & ops]]
-                           (.register channel s (poll-ops-mask ops))
-                           s)
-                         (Selector/open)
-                         poll-set)]
+  (with-open [^Selector bo (reduce (fn [s [channel & ops]]
+                                     (.register channel s (poll-ops-mask ops))
+                                     s)
+                                   (Selector/open)
+                                   poll-set)]
     (doall ; have to force evaluation of this before closing selector
      (poll-selector bo timeout))))
 
@@ -121,8 +123,8 @@
         (.write ssh msg)
         (is (ready-for? (poll-channels [[ssh :read]] 1357) ssh :read))))))
 
-(defn accept-connection [socket]
-  (let [s1 (.accept socket)]
+(defn accept-connection [^ServerSocketChannel socket]
+  (let [s1 ^SocketChannel (.accept socket)]
     (when s1
       (when (log/may-log? :debug)
         ;; no need to getRemoteAddress if we don't have debug logging
@@ -135,17 +137,19 @@
     (.register channel s (poll-ops-mask ops))
     s))
 
-(defn update-selector-for-writing [selector w]
+(defn update-selector-for-writing [^Selector selector w]
   (when-not (:eof? w)
-    (let [c (:to-channel w)]
-      (run! #(or (= c (.channel %)) (.cancel %)) (.keys selector))
+    (let [c ^SocketChannel (:to-channel w)]
+      (run! (fn [^SelectionKey k]
+              (or (= c (.channel k)) (.cancel k)))
+            (.keys selector))
       (.register c selector (poll-ops-mask [:write]))
       selector)))
 
 (defn backend [serversocket address finished-ch on-exit]
   (let [bytebuffer (ByteBuffer/allocate 8192)
         {:keys [::conf/host ::conf/port]} address
-        selector (new-selector serversocket [:accept])
+        selector ^Selector (new-selector serversocket [:accept])
         write-selector (Selector/open)]
     (info (str "started backend for " address))
     (loop [pending-write false
@@ -184,8 +188,9 @@
             ;; our selector, so we can finish up serving the requests we already
             ;; started but will not pick up any new connections
             (async/poll! finished-ch)
-            (let [key (first (filter #(= serversocket (.channel %))
-                                     (.keys selector)))]
+            (let [key ^SelectionKey
+                  (first (filter #(= serversocket (.channel %))
+                                 (.keys selector)))]
               ;; if the serversocket has been closed already (e.g. by another
               ;; thread when the listen-address is changed) then it will not
               ;; appear in this selector
@@ -200,8 +205,8 @@
             ;; Zeroth, close the corresponding down/upstream for any up/downstream
             ;; on which we received eof while reading
             (and pending-write (:eof? pending-write))
-            (let [fch (:from-channel pending-write)
-                  tch (:to-channel pending-write)]
+            (let [fch ^SocketChannel (:from-channel pending-write)
+                  tch ^SocketChannel (:to-channel pending-write)]
               (.close fch)              ;this also causes removal of these
               (.close tch)              ;channels from the selector
               (recur nil (dissoc downstreams-for-upstreams fch tch)))
@@ -240,10 +245,11 @@
             ;; Note this may block in connect(), I haven't decided if that's
             ;; bad or not
             (get ready-channels serversocket)
-            (if-let [sock (log/spy :trace (accept-connection serversocket))]
+            (if-let [sock ^SocketChannel
+                     (log/spy :trace (accept-connection serversocket))]
               (let [ds (try
                          (doto (SocketChannel/open)
-                           (.connect (InetSocketAddress. host port))
+                           (.connect (InetSocketAddress. ^String host ^long port))
                            (debug "connected")
                            (.configureBlocking false))
                          (catch java.net.ConnectException e
@@ -343,10 +349,10 @@
             {}
             (:backends config))))
 
-(defn get-port [listener]
+(defn get-port [^ServerSocketChannel listener]
   (.. listener socket getLocalPort))
 
-(defn update-listener [listener config]
+(defn update-listener [^ServerSocketChannel listener config]
   (when-let [l (get-in config [:config :log-level])]
     (when-not (= l (:level log/*config*))
       (log/info (str "Setting log level to " l))
