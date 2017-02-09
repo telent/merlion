@@ -306,7 +306,7 @@
 (defn update-backend-state-from-spec [margin exit-chan listener backend spec]
   {:pre [(s/valid? ::conf/backend spec)]
    :post [(s/valid? ::backend-state %)]}
-  (let [last-seen (:last-seen-at spec)
+  (let [last-seen (or (:last-seen-at spec) 0)
         be (assoc backend
                   :last-seen-at last-seen
                   :listen-address (:listen-address spec))

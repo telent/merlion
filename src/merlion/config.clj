@@ -42,8 +42,8 @@
 
 (s/def ::boolean (coercer boolean? trueish?))
 (s/def ::disabled ::boolean)
-(s/def ::backend (s/keys :req-un [::last-seen-at ::listen-address]
-                         :opt-un [::disabled]))
+(s/def ::backend (s/keys :req-un [::listen-address]
+                         :opt-un [::last-seen-at ::disabled]))
 
 (s/conform ::boolean true)
 (s/conform ::boolean "true")
