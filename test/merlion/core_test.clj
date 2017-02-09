@@ -9,7 +9,7 @@
             [clojure.test :as test :refer [deftest testing is]]
             ))
 
-(log/set-level! :trace)
+(log/set-level! (if-let [l (System/getenv "LOGLEVEL")] (keyword l) :info))
 
 (def excerpt-txt (slurp "test/fixtures/excerpt.txt"))
 
