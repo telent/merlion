@@ -45,16 +45,17 @@
 (s/def ::backend (s/keys :req-un [::listen-address]
                          :opt-un [::last-seen-at ::disabled]))
 
-(s/conform ::boolean true)
-(s/conform ::boolean "true")
-(s/conform ::boolean "false")
+(deftest conformations
+  (is (s/conform ::boolean true))
+  (is (s/conform ::boolean "true"))
+  (is (s/conform ::boolean "false"))
+  (is (s/conform ::backend {:listen-address "localhost:8192"
+                            :last-seen-at "2017-01-25T14:20:33+00:00"
+                            :disabled "true"}))
 
-(s/conform ::backend {:listen-address "localhost:8192"
-                      :last-seen-at "2017-01-25T14:20:33+00:00"
-                      :disabled "true"})
+  (s/conform ::listen-address "localhost:8192"))
 
-(s/conform ::listen-address "localhost:8192")
-(s/def ::backends (s/coll-of ::backend))
+;(s/def ::backends (s/coll-of ::backend))
 
 (s/def ::upstream-service-etcd-prefix string?)
 (s/def ::state-etcd-prefix string?)

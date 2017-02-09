@@ -61,17 +61,17 @@
 
     (is (ready-for?
          [{:channel :c1 :ops rw}
-          {:channel :c2 :ops (+ SelectionKey/OP_READ)}]
+          {:channel :c2 :ops SelectionKey/OP_READ}]
          :c1
          :write))
     (is (ready-for?
          [{:channel :c1 :ops rw}
-          {:channel :c2 :ops (+ SelectionKey/OP_READ)}]
+          {:channel :c2 :ops SelectionKey/OP_READ}]
          :c2
          :read))
     (is (not (ready-for?
               [{:channel :c1 :ops rw}
-               {:channel :c2 :ops (+ SelectionKey/OP_READ)}]
+               {:channel :c2 :ops SelectionKey/OP_READ}]
               :c2
               :write)))))
 

@@ -115,14 +115,7 @@
    (etcdctl (str "service/" domain-name "/" name "/last-seen-at")
             (.toString (java.time.Instant/now))))
   ([name port]
-   (add-backend "localhost" port)))
-
-
-(defn add-backend [name port]
-  (etcdctl (str "service/" domain-name "/" name "/listen-address")
-           (str "localhost:" port))
-  (etcdctl (str "service/" domain-name "/" name "/last-seen-at")
-           (.toString (java.time.Instant/now))))
+   (add-backend name "localhost" port)))
 
 
 (deftest download
