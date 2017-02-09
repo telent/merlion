@@ -4,10 +4,8 @@
    [ring.util.codec]
    [clojure.core.async :as async :refer [<! go chan >!]]
    [clojure.string :as str]
-   [aleph.http :as http]
-   [byte-streams :as bs]
-   [cheshire.core :as json]
-   [clojure.edn :as edn]))
+   [clj-http.lite.client :as http]
+   [cheshire.core :as json]))
 
 
 (defn value-from-etcd-node [nodename node]
@@ -36,9 +34,9 @@
            "608620955125-9plvti1kpi8vjacjo3ssmei9m43r1qo9.apps.googleusercontent.com"))))
 
 (def get-http
-  (comp slurp :body deref #(http/get % {:throw-exceptions false})))
+  (comp :body #(http/get % {:throw-exceptions false})))
 (def put-http
-  (comp slurp :body deref #(http/put %1 (merge %2 {:throw-exceptions false}))))
+  (comp :body #(http/put %1 (merge %2 {:throw-exceptions false}))))
 (def etcd-endpoint "http://localhost:2379/v2/keys")
 
 (defn get-prefix [prefix]
@@ -60,7 +58,7 @@
 (defn put-value [path value]
   (json/decode
    (put-http (str etcd-endpoint path)
-             {:headers {:content-type "application/x-www-form-urlencoded"}
+             {:headers {"content-type" "application/x-www-form-urlencoded"}
 
               :body (ring.util.codec/form-encode {:value value})})))
 
