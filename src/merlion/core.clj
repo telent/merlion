@@ -337,7 +337,7 @@
         margin (:upstream-freshness (:config config))
         unwanted (set/difference (set existing) (set wanted))]
     (log/spy :trace unwanted)
-    (run! #(async/put! % :quit) (map #(:chan (get backends %)) unwanted))
+    (run! #(and % (async/put! % :quit)) (map #(:chan (get backends %)) unwanted))
     (reduce (fn [m [n spec]]
               (let [state (get backends [n listener] {})]
                 (assoc
