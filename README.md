@@ -1,5 +1,7 @@
 # Merlion
 
+[![CircleCI](https://circleci.com/gh/telent/merlion.svg?style=svg)](https://circleci.com/gh/telent/merlion)
+
 A TCP proxy configured via ["etcd"] (https://github.com/coreos/etcd) ,
 following the ["autopilot"]
 (https://www.joyent.com/blog/app-centric-micro-orchestration) pattern
