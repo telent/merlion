@@ -1,4 +1,4 @@
 test:
   pre:
-    apt-get install etcd
+    - apt-get install etcd
     
