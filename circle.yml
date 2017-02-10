@@ -1,4 +1,8 @@
-test:
+dependencies:
+  cache_directories:
+    - var/etcd
   pre:
-    - sudo apt-get install etcd
-    
+    - curl -L https://github.com/coreos/etcd/releases/download/v3.1.0/etcd-v3.1.0-linux-amd64.tar.gz -o /tmp/etcd-linux-amd64.tar.gz
+    - mkdir -p var/etcd && tar xzvf /tmp/etcd-linux-amd64.tar.gz -C var/etcd --strip-components=1
+    - var/etcd/etcd:
+        background: true
