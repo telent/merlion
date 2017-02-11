@@ -1,6 +1,6 @@
 dependencies:
   cache_directories:
-    - var/etcd
+    - vendor/bin
   pre:
     - sudo apt-get install socat pv
     - curl -L https://github.com/coreos/etcd/releases/download/v3.1.0/etcd-v3.1.0-linux-amd64.tar.gz -o /tmp/etcd-linux-amd64.tar.gz
@@ -14,4 +14,4 @@ deployment:
     branch: master
     commands:
       - lein uberjar
-      - vendor/bin/ghr -t  d7e87b45657ea940189edf4cd47d601ed8253924  -u telent -r merlion -prerelease target/uberjar/merlion-0.1.0-SNAPSHOT-standalone.jar `git describe --tags` target/uberjar/merlion-*-standalone.jar
+      - vendor/bin/ghr -t  d7e87b45657ea940189edf4cd47d601ed8253924  -u telent -r merlion -prerelease  `git describe --tags` target/uberjar/merlion-*-standalone.jar
