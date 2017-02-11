@@ -62,11 +62,21 @@ been used for realz
 
 ## Quick start/demonstration
 
+You should usually be able to download a prebuilt Jar file
+from [Github releases](https://github.com/telent/merlion/releases)
+(these are built by CircleCI on each commit to `master`).  Alternatively, to build it manually (requires
+Leiningen) do
+
 ```sh
 # download and build the application
 git clone http://github.com/telent/merlion`
 cd merlion && lein uberjar
+```
 
+Now you can configure and run it:
+
+
+```
 # Add Merlion config to etcd, using a namespace prefix of your choice
 # (which should be unique to this service)
 etcdctl set /conf/merlion/mysite.example.com/upstream-service-etcd-prefix /services/merlion
