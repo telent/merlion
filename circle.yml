@@ -4,6 +4,14 @@ dependencies:
   pre:
     - sudo apt-get install socat pv
     - curl -L https://github.com/coreos/etcd/releases/download/v3.1.0/etcd-v3.1.0-linux-amd64.tar.gz -o /tmp/etcd-linux-amd64.tar.gz
-    - mkdir -p var/etcd && tar xzvf /tmp/etcd-linux-amd64.tar.gz -C var/etcd --strip-components=1
-    - var/etcd/etcd:
+    - mkdir -p vendor/bin && tar xzvf /tmp/etcd-linux-amd64.tar.gz -C vendor/bin --strip-components=1
+    - curl -L https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip -o ghr.zip
+    - unzip -d vendor/bin/ ghr.zip
+    - vendor/bin/etcd:
         background: true
+deployment:
+  jar:
+    branch: master
+    commands:
+      - lein uberjar
+      - vendor/bin/ghr -t  d7e87b45657ea940189edf4cd47d601ed8253924  -u telent -r merlion -prerelease target/uberjar/merlion-0.1.0-SNAPSHOT-standalone.jar `git describe --tags` target/uberjar/merlion-*-standalone.jar
