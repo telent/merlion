@@ -14,4 +14,4 @@ deployment:
     branch: master
     commands:
       - lein uberjar
-      - vendor/bin/ghr -t  d7e87b45657ea940189edf4cd47d601ed8253924  -u telent -r merlion -prerelease  `git describe --tags` target/uberjar/merlion-*-standalone.jar
+      - vendor/bin/ghr -u telent -r merlion -prerelease  `git describe --tags --abbrev-0` target/uberjar/merlion-*-standalone.jar
