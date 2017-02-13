@@ -2,11 +2,9 @@ dependencies:
   cache_directories:
     - vendor/bin
   pre:
-    - sudo apt-get install socat pv
+    - sudo apt-get install socat pv ruby
     - curl -L https://github.com/coreos/etcd/releases/download/v3.1.0/etcd-v3.1.0-linux-amd64.tar.gz -o /tmp/etcd-linux-amd64.tar.gz
     - mkdir -p vendor/bin && tar xzvf /tmp/etcd-linux-amd64.tar.gz -C vendor/bin --strip-components=1
-    - curl -L https://github.com/tcnksm/ghr/releases/download/v0.5.4/ghr_v0.5.4_linux_amd64.zip -o ghr.zip
-    - unzip -o -d vendor/bin/ ghr.zip
     - vendor/bin/etcd:
         background: true
 deployment:
@@ -14,4 +12,4 @@ deployment:
     branch: master
     commands:
       - lein uberjar
-      - vendor/bin/ghr -u telent -r merlion -prerelease  `git describe --tags --abbrev=0` target/uberjar/merlion-*-standalone.jar
+      - ruby push_github_release.rb target/uberjar/merlion-*-standalone.jar
