@@ -11,5 +11,5 @@ deployment:
   jar:
     branch: master
     commands:
-      - lein uberjar
+      - PATCH_LEVEL=`git rev-list HEAD --count`  lein uberjar
       - ruby push_github_release.rb target/uberjar/merlion-*-standalone.jar

@@ -1,6 +1,13 @@
-(defproject merlion "0.1.0-SNAPSHOT"
+(def merlion-version
+  (let [v (clojure.string/trim-newline (slurp "VERSION"))
+        p (System/getenv "PATCH_LEVEL")]
+    (if p
+      (str v "." p)
+      (str v ".0-SNAPSHOT" p))))
+
+(defproject merlion merlion-version
   :description "etcd-based TCP proxy"
-  :url "http://example.com/FIXME"
+  :url "http://gitgub.com/telent/merlion/README.md"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
