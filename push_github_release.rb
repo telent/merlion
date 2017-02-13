@@ -88,7 +88,9 @@ end
 # delete_releases
 # exit 0
 
-tag = Time.new.strftime("0.1.%Y%m%d%H%M%S")
+tag = [File.read("VERSION").chomp,
+       ENV.fetch("PATCH_LEVEL")].join(".")
+
 release = make_release(tag_name: ('v' + tag),
                        name: tag)
 if release["message"]=="Validation Failed"
