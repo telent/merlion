@@ -1,11 +1,12 @@
 (ns merlion.core
   (:import [java.nio Buffer ByteBuffer]
-           [java.net InetSocketAddress]
+           (java.net InetSocketAddress InetAddress)
            [java.nio.channels SocketChannel ServerSocketChannel Channel
             Selector SelectionKey])
   (:gen-class)
   (:require [merlion.etcd :as etcd]
             [merlion.config :as conf]
+            [merlion.inet :as inet]
             [clojure.string :as str]
             [clojure.test :as test :refer [deftest testing is]]
             [clojure.java.io :as io]
@@ -146,12 +147,12 @@
       (.register c selector (poll-ops-mask [:write]))
       selector)))
 
-(defn backend [serversocket address finished-ch on-exit]
+(defn backend [serversocket socket-address finished-ch on-exit]
   (let [bytebuffer (ByteBuffer/allocate 8192)
-        {:keys [::conf/host ::conf/port]} address
+        {:keys [::inet/address ::inet/port]} socket-address
         selector ^Selector (new-selector serversocket [:accept])
         write-selector (Selector/open)]
-    (info (str "started backend for " address))
+    (info (str "started backend for " socket-address))
     (loop [pending-write false
            downstreams-for-upstreams {}]
       ;; BACKPRESSURE - we do things in a very specific order.  This is
@@ -249,11 +250,11 @@
                      (log/spy :trace (accept-connection serversocket))]
               (let [ds (try
                          (doto (SocketChannel/open)
-                           (.connect (InetSocketAddress. ^String host ^long port))
+                           (.connect (InetSocketAddress. ^InetAddress address ^long port))
                            (debug "connected")
                            (.configureBlocking false))
                          (catch java.net.ConnectException e
-                           (let [m (str "Cannot connect to " host ":" port)]
+                           (let [m (str "Cannot connect to " address ":" port)]
                              (log/warn m)
                              (.close sock)
                              (on-exit m)
@@ -290,15 +291,21 @@
 
 (s/def ::backend-state
   (s/keys :req-un [::conf/last-seen-at
-                   ::conf/listen-address]
+                   ::inet/socket-address]
           :opt-un [::exited-at
                    ::exit-reason
                    ::chan
                    ]))
 
+(defn resolve-socket-address [socket-address]
+  {:post [(s/valid? ::inet/socket-address %)]}
+  (let [{:keys [::conf/host ::conf/port]} socket-address]
+    {::inet/address (inet/resolve-host host) ::inet/port port}))
+
 (s/conform ::backend-state
            {:last-seen-at "2017-01-26T16:42:46+00:00"
-            :listen-address "etwert:1000"
+            :socket-address (resolve-socket-address
+                             (s/conform ::conf/listen-address "localhost:1000"))
             :chan true})
 (s/conform ::conf/last-seen-at nil)
 
@@ -315,7 +322,8 @@
   (let [last-seen (or (:last-seen-at spec) 0)
         be (assoc backend
                   :last-seen-at last-seen
-                  :listen-address (:listen-address spec))
+                  :socket-address (resolve-socket-address
+                                   (:listen-address spec)))
         unavailable? (log/spy (backend-unavailable? margin (log/spy be)))
         disabled? (or (:disabled spec) unavailable?)]
     (if-let [c (and disabled? (:chan backend))]
@@ -326,7 +334,7 @@
                    nil
                    (or (:chan backend)
                        (backend-chan
-                        (:listen-address spec)
+                        (:socket-address be)
                         listener
                         #(async/put! exit-chan [[(:name spec) listener] %])))))))
 
