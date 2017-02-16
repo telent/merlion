@@ -8,8 +8,6 @@
 (defn s->millepoch-time [s]
   (.getTimeInMillis (clojure.instant/read-instant-calendar s)))
 
-
-
 ;; We're doing something here a bit like 'designators' in the Common Lisp
 ;; standard - things which can be coerced into valid values for the
 ;; spec are acceptable, as is the value itself, and calling conform
