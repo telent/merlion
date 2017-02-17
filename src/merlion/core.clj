@@ -320,23 +320,27 @@
   {:pre [(s/valid? ::conf/backend spec)]
    :post [(s/valid? ::backend-state %)]}
   (let [last-seen (or (:last-seen-at spec) 0)
-        be (assoc backend
-                  :last-seen-at last-seen
-                  :socket-address (resolve-socket-address
-                                   (:listen-address spec)))
+        be (assoc backend :last-seen-at last-seen)
+        old-address (:socket-address be)
+        new-address (resolve-socket-address (:listen-address spec))
         unavailable? (log/spy (backend-unavailable? margin (log/spy be)))
         disabled? (or (:disabled spec) unavailable?)]
     (if-let [c (and disabled? (:chan backend))]
       (async/put! c :quit))
     (assoc be
            :unavailable unavailable?
-           :chan (if disabled?
-                   nil
-                   (or (:chan backend)
-                       (backend-chan
-                        (:socket-address be)
-                        listener
-                        #(async/put! exit-chan [[(:name spec) listener] %])))))))
+           :socket-address new-address
+           :chan (cond
+                   disabled? nil
+
+                   (and (:chan backend) (= old-address new-address))
+                   (:chan backend)
+
+                   :else
+                   (backend-chan
+                    new-address
+                    listener
+                    #(async/put! exit-chan [[(:name spec) listener] %]))))))
 
 (defn update-backends [backends config listener exit-chan]
   (log/spy config)
@@ -446,9 +450,12 @@
                           (log/spy (public-backend-state (log/spy backends))))))
         (let [next-check-interval (log/spy (time-to-next-expire config backends))
               timeout-ch (async/timeout (or next-check-interval (* 1000 1000)))
-              [val ch] (alts! [config-ch shutdown backend-exits timeout-ch])]
-          (cond (= ch config-ch)
-                (let [l (update-listener listener val)]
+              poll-config-ch (async/timeout (* 1000 30))
+              [val ch] (alts! [config-ch shutdown backend-exits
+                               poll-config-ch timeout-ch])]
+          (cond (or (= ch config-ch) (= ch poll-config-ch))
+                (let [val (or val config)
+                      l (update-listener listener val)]
                   (log/debug (pr-str "new config " val))
                   (if (:config val)
                     (recur (update-backends backends val l backend-exits)
