@@ -364,22 +364,29 @@
 (defn get-port [^ServerSocketChannel listener]
   (.. listener socket getLocalPort))
 
+(defn channel-socket-address [^ServerSocketChannel listener]
+  {:post [(s/valid? ::inet/socket-address %)]}
+  (let [s (.socket listener)]
+    {::inet/address (.getInetAddress s)
+     ::inet/port (.getLocalPort s)}))
+
 (defn update-listener [^ServerSocketChannel listener config]
   (when-let [l (get-in config [:config :log-level])]
     (when-not (= l (:level log/*config*))
       (log/info (str "Setting log level to " l))
       (log/set-level! l)))
-  (if-let [req-addr (log/spy :trace (get-in config [:config :listen-address]))]
-    (let [req-port (::conf/port req-addr)
-          old-port (and listener (get-port listener))]
-      (if (and listener
-               (= old-port req-port))
+  (if-let [config-addr (log/spy :trace
+                                (get-in config [:config :listen-address]))]
+    (let [new-addr (resolve-socket-address config-addr)
+          old-addr (and listener (channel-socket-address listener))]
+      (if (and listener (= old-addr new-addr))
         (log/spy :trace listener)
         (let [new-l (ServerSocketChannel/open)]
           (and listener (.close listener))
           (doto  new-l
             (.configureBlocking false)
-            (.bind (InetSocketAddress. req-port))))))
+            (.bind (InetSocketAddress. (::inet/address new-addr)
+                                       (::inet/port new-addr)))))))
     nil))
 
 (defn conform-or-warn [spec data]
