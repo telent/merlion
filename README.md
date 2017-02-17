@@ -52,13 +52,10 @@ something vaguely akin to it.  You should probably, therefore, treat
 this document as a statement of how I wish things would be, rather
 than as a claim that this is presently how they in fact are**
 
-As of Jan 2017
+As of February 2017
 
 * Poking gently at it, it seems to work,  but it's never actually
 been used for realz
-
-* (On my machine, at least) listeners bind to the ipv6 wildcard
-  address no matter what address you tell it to use
 
 ## Quick start/demonstration
 
@@ -71,6 +68,7 @@ Leiningen) do
 # download and build the application
 git clone http://github.com/telent/merlion`
 cd merlion && lein uberjar
+cp target/uberjar/merlion-*-standalone.jar .
 ```
 
 Now you can configure and run it:
@@ -82,8 +80,8 @@ Now you can configure and run it:
 etcdctl set /conf/merlion/mysite.example.com/upstream-service-etcd-prefix /services/merlion
 etcdctl set /conf/merlion/mysite.example.com/listen-address 0.0.0.0:8080
 
-# Start it up
-java -jar target/uberjar/merlion-0.1.0-SNAPSHOT-standalone.jar /conf/merlion/mysite.example.com
+# Start it up (adapt version number as needed)
+java -jar merlion-0.1.93-standalone.jar /conf/merlion/mysite.example.com
 
 # It won't actually be able to do anything without a backend though.
 # In a second terminal, run
